@@ -1,0 +1,28 @@
+let square = x -> x^2;
+let also_square(x) = x^2
+
+let primes = range(100) |: filter(is_prime);
+let prime_squares = range(100) |: map(square);
+let also_prime_squares = range(100) |? is_prime |> square;
+
+# 
+let primes_and_prime_squares = primes |& prime_squares;
+
+if 49 <~ data {
+    println("49 is the square of a prime");
+} else {
+    println("49 is not the square of a prime");
+}
+
+# LET IDENT(square) EQ IDENT(x) ARROW IDENT(x) CARET INT(2) SEMICOLON
+# 
+# LET IDENT(data) EQ IDENT(range) LPAREN INT(100) RPAREN PIPECOLON IDENT(filter) LPAREN IDENT(is_prime) RPAREN PIPECOLON IDENT(map) LPAREN IDENT(square) RPAREN SEMICOLON
+# LET IDENT(also_data) EQ IDENT(range) LPAREN INT(100) RPAREN PIPEQUESTION IDENT(is_prime) PIPEPOINT IDENT(square) SEMICOLON
+
+# D = x:(fold(map(factors(x), n:(to_int(fold(factors(x),mul)/n))), add))
+
+let D = x -> {
+    let facts = factors(x);
+    let product = facts |: foldl(1, mul);
+    return facts |> (n -> product / n) |: foldl(0, add);
+}
