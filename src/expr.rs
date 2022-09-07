@@ -5,7 +5,8 @@ use crate::{token::{Token, OpType}};
 pub enum Stmt {
     Expr { expr: Expr },
     Let { lhs: Token, rhs: Option<Expr> },
-    If { conditions: Vec<Expr>, bodies: Vec<Vec<Stmt>>, else_clause: Option<Vec<Stmt>> }
+    Block { stmts: Vec<Stmt> },
+    If { if_clauses: Vec<(Expr, Stmt)>, else_clause: Option<Box<Stmt>> }
 }
 
 impl fmt::Debug for Stmt {

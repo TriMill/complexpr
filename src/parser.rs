@@ -2,12 +2,13 @@ use crate::{token::{Token, TokenType, OpType}, ParserError, expr::{Stmt, Expr}};
 
 pub struct Parser {
     tokens: Vec<Token>,
+    repl: bool,
     idx: usize
 }
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, idx: 0 }
+    pub fn new(tokens: Vec<Token>, repl: bool) -> Self {
+        Self { tokens, repl, idx: 0 }
     }
 
     fn at_end(&self) -> bool {
@@ -56,34 +57,11 @@ impl Parser {
             // let statement
             TokenType::Let => {
                 self.next();
-                let expr = self.assignment()?;
-
-                // must be followed by an assignment expression
-                if let Expr::Binary{lhs, rhs, op: Token{ty: TokenType::Equal,..}} = expr {
-                    if let Expr::Ident{value: tok} = *lhs {
-                        if self.at_end() {
-                            return Ok(Stmt::Let{lhs: tok, rhs: Some(*rhs)})
-                        }
-                        let next = self.next();
-                        return match next.ty {
-                            TokenType::Semicolon => Ok(Stmt::Let{lhs: tok, rhs: Some(*rhs)}),
-                            _ => Err(self.mk_error("Missing semicolon after 'let' statement".to_owned()))
-                        };
-                    } else {
-                        Err(self.mk_error("Invalid expression after 'let'".to_owned()))
-                    }
-                } else if let Expr::Ident{value: tok} = expr {
-                    if self.at_end() {
-                        return Ok(Stmt::Let{lhs: tok, rhs: None})
-                    }
-                    let next = self.next();
-                    return match next.ty {
-                        TokenType::Semicolon => Ok(Stmt::Let{lhs: tok, rhs: None}),
-                        _ => Err(self.mk_error("Missing semicolon after 'let' statement".to_owned()))
-                    };
-                } else {
-                    Err(self.mk_error("Invalid expression after 'let'".to_owned()))
-                }
+                return self.letstmt()
+            }
+            TokenType::LBrace => {
+                self.next();
+                return self.block()
             }
 
             // if statement
@@ -96,7 +74,11 @@ impl Parser {
             _ => {
                 let expr = self.assignment()?;
                 if self.at_end() {
-                    return Ok(Stmt::Expr{expr})
+                    if self.repl {
+                        return Ok(Stmt::Expr{expr})
+                    } else {
+                        self.err_on_eof()?;
+                    }
                 }
 
                 let next = self.next();
@@ -107,6 +89,79 @@ impl Parser {
                 };
             }
         }
+    }
+
+    fn letstmt(&mut self) -> Result<Stmt, ParserError> {
+        let expr = self.assignment()?;
+        // must be followed by an assignment expression
+        if let Expr::Binary{lhs, rhs, op: Token{ty: TokenType::Equal,..}} = expr {
+            if let Expr::Ident{value: tok} = *lhs {
+                if self.at_end() {
+                    if self.repl {
+                        return Ok(Stmt::Let{lhs: tok, rhs: Some(*rhs)})
+                    } else {
+                        self.err_on_eof()?;
+                    }
+                }
+                let next = self.next();
+                return match next.ty {
+                    TokenType::Semicolon => Ok(Stmt::Let{lhs: tok, rhs: Some(*rhs)}),
+                    _ => Err(self.mk_error("Missing semicolon after 'let' statement".to_owned()))
+                };
+            } else {
+                Err(self.mk_error("Invalid expression after 'let'".to_owned()))
+            }
+        } else if let Expr::Ident{value: tok} = expr {
+            if self.at_end() {
+                if self.repl {
+                    return Ok(Stmt::Let{lhs: tok, rhs: None})
+                } else {
+                    self.err_on_eof()?;
+                }
+            }
+            let next = self.next();
+            return match next.ty {
+                TokenType::Semicolon => Ok(Stmt::Let{lhs: tok, rhs: None}),
+                _ => Err(self.mk_error("Missing semicolon after 'let' statement".to_owned()))
+            };
+        } else {
+            Err(self.mk_error("Invalid expression after 'let'".to_owned()))
+        }
+    }
+
+    fn ifstmt(&mut self) -> Result<Stmt, ParserError> {
+        let mut if_clauses = vec![];
+        let mut ec = false;
+        loop {
+            let condition = self.assignment()?;
+            let body = self.statement()?;
+            if_clauses.push((condition, body));
+            match self.peek().ty {
+                TokenType::Elif => { self.next(); continue },
+                TokenType::Else => { self.next(); ec = true; break },
+                _ => break
+            }
+        }
+        let else_clause;
+        if ec {
+            else_clause = Some(Box::new(self.statement()?));
+        } else {
+            else_clause = None;
+        }
+        return Ok(Stmt::If{ 
+            if_clauses: if_clauses,
+            else_clause: else_clause
+        })
+    }
+
+    fn block(&mut self) -> Result<Stmt, ParserError> {
+        let mut stmts = vec![];
+        while !self.at_end() && self.peek().ty != TokenType::RBrace {
+            stmts.push(self.statement()?)
+        }
+        self.err_on_eof()?;
+        self.next();
+        return Ok(Stmt::Block{ stmts })
     }
 
     // Generic method for left-associative operators
@@ -223,9 +278,5 @@ impl Parser {
         } else {
             Err(self.mk_error(format!("Unexpected token: {:?}", next.ty)))
         }
-    }
-
-    fn ifstmt(&mut self) -> Result<Stmt, ParserError> {
-        todo!()
     }
 }

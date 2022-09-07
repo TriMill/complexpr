@@ -1,5 +1,5 @@
 let square = x -> x^2;
-let also_square(x) = x^2
+let also_square(x) = x^2;
 
 let primes = range(100) |: filter(is_prime);
 let prime_squares = range(100) |: map(square);

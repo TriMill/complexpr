@@ -1,5 +1,7 @@
 use std::{rc::Rc, collections::HashMap, ops::*};
 
+use num_traits::Zero;
+
 type Rational = num_rational::Ratio<i64>;
 type Complex = num_complex::Complex64;
 
@@ -54,6 +56,22 @@ pub enum Value {
     Bool(bool), 
     String(Rc<str>), 
     List(Rc<Vec<Value>>), Map(Rc<HashMap<Value,Value>>),
+}
+
+impl Value {
+    pub fn truthy(&self) -> bool {
+        use Value::*;
+        match self {
+            Bool(false) | Nil | Int(0) => false,
+            Float(f) => *f != 0.0,
+            Complex(z) => !z.is_zero(),
+            Rational(r) => !r.is_zero(),
+            String(s) => !s.len() == 0,
+            List(l) => !l.len() == 0,
+            Map(m) => !m.len() == 0,
+            _ => true
+        }
+    }
 }
 
 
