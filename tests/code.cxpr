@@ -1,7 +1,4 @@
-if false {
 
-} elif true {
-
-} else {
-    
+for c: "asdfghjkl" {
+    let b = 'q' + c;
 }

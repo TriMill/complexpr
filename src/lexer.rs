@@ -65,6 +65,10 @@ impl Lexer {
             message: msg.into() 
         }
     }
+    
+    fn collect_literal(&self) -> String {
+        self.code[self.start..self.current].iter().collect::<String>()       
+    }
 
     fn advance(&mut self, newline: bool) {
         if newline {
@@ -139,6 +143,7 @@ impl Lexer {
                 },
                 ',' => self.add_token(TokenType::Comma, ","),
                 ';' => self.add_token(TokenType::Semicolon, ";"),
+                ':' => self.add_token(TokenType::Colon, ":"),
                 '(' => self.add_token(TokenType::LParen, "("),
                 ')' => self.add_token(TokenType::RParen, ")"),
                 '[' => self.add_token(TokenType::LBrack, "["),
@@ -152,12 +157,27 @@ impl Lexer {
                     self.advance(true);
                 },
                 '"' => self.string()?,
+                '\'' => self.char()?,
                 ' ' | '\t' | '\r' | '\n' => (),
                 '0'..='9' => self.number()?,
                 'a'..='z' | 'A'..='Z' | '_' => self.ident()?,
                 c => return Err(self.mk_error(format!("Unexpected character: {}", c)))
             }
         }
+        Ok(())
+    }
+
+    fn char(&mut self) -> Result<(), ParserError> {
+        if self.at_end() { return Err(self.mk_error("Unexpected EOF in character literal")) }
+        let mut c = self.next();
+        if c == '\'' {
+            return Err(self.mk_error("Empty character literal"))
+        } else if c == '\\' {
+            if self.at_end() { return Err(self.mk_error("Unexpected EOF in character literal")) }
+            // TODO Escapes
+        }
+        self.expect(&['\'']).ok_or(self.mk_error("Expected ' to terminate character literal"))?;
+        self.add_token(TokenType::Char(c), self.collect_literal());
         Ok(())
     }
 
@@ -188,7 +208,7 @@ impl Lexer {
             return Err(self.mk_error("Unexpected EOF while parsing string"))
         }
         self.advance(false);
-        self.add_token(TokenType::String(Rc::from(s)), self.code[self.start..self.current].iter().collect::<String>());
+        self.add_token(TokenType::String(Rc::from(s)), self.collect_literal());
         Ok(())
     }
 
@@ -206,7 +226,7 @@ impl Lexer {
         }
         let is_imag = !self.at_end() && self.peek() == 'i';
         if is_imag { self.advance(false); }
-        let literal = self.code[self.start..self.current].iter().collect::<String>();
+        let literal = self.collect_literal();
         if is_imag {
             match literal[..literal.len()-1].parse::<f64>() {
                 Ok(num) => self.add_token(TokenType::ImFloat(num), literal),
@@ -230,7 +250,7 @@ impl Lexer {
         while !self.at_end() && (self.peek().is_ascii_alphanumeric() || self.peek() == '_') {
             self.advance(false);
         }
-        let literal = self.code[self.start..self.current].iter().collect::<String>();
+        let literal = self.collect_literal();
         let token_ty = match literal.as_ref() {
             "true" => TokenType::True,
             "false" => TokenType::False,

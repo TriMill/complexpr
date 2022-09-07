@@ -6,7 +6,8 @@ pub enum Stmt {
     Expr { expr: Expr },
     Let { lhs: Token, rhs: Option<Expr> },
     Block { stmts: Vec<Stmt> },
-    If { if_clauses: Vec<(Expr, Stmt)>, else_clause: Option<Box<Stmt>> }
+    If { if_clauses: Vec<(Expr, Stmt)>, else_clause: Option<Box<Stmt>> },
+    For { var: Token, expr: Expr, stmt: Box<Stmt> }
 }
 
 impl fmt::Debug for Stmt {

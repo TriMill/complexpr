@@ -55,22 +55,30 @@ impl Environment {
     }
 }
 
+fn unwrap_ident_token<'a>(tok: &'a Token) -> &'a Rc<str> {
+    if let Token { ty: TokenType::Ident(s),.. } = tok {
+        s
+    } else {
+        unreachable!("precondition failed")
+    }
+}
+
 pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), RuntimeError> {
     match stmt {
         Stmt::Expr{ expr } 
             => drop(eval_expr(expr, env)),
-        Stmt::Let { lhs: Token{ty: TokenType::Ident(s),..}, rhs: None } 
-            => env.borrow_mut().declare(s.clone(), Value::Nil),
-        Stmt::Let { lhs: Token{ty: TokenType::Ident(s),..}, rhs: Some(rhs) } => {
+        Stmt::Let { lhs, rhs: None } 
+            => env.borrow_mut().declare(unwrap_ident_token(lhs).clone(), Value::Nil),
+        Stmt::Let { lhs, rhs: Some(rhs) } => {
             let r = eval_expr(rhs, env.clone())?;
-            env.borrow_mut().declare(s.clone(), r)
+            env.borrow_mut().declare(unwrap_ident_token(lhs).clone(), r)
         },
         Stmt::Block { stmts } => {
             let block_env = Environment::extend(env).wrap();
             for stmt in stmts { 
                 eval_stmt(stmt, block_env.clone())? 
             }
-        }
+        },
         Stmt::If { if_clauses, else_clause } => {
             for ic in if_clauses {
                 let cond = eval_expr(&ic.0, env.clone())?;
@@ -81,7 +89,21 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), RuntimeError> {
             if let Some(ec) = else_clause {
                 return eval_stmt(&ec, env)
             }
-        }
+        },
+        Stmt::For { var, expr, stmt } => {
+            let name = unwrap_ident_token(var);
+            let iter = eval_expr(expr, env.clone())?;
+            env.borrow_mut().declare(name.clone(), Value::Nil);
+            if let Ok(i) = iter.iter() {
+                for v in i {
+                    let env = env.clone();
+                    env.borrow_mut().set(name.clone(), v).expect("unreachable");
+                    eval_stmt(&stmt, env)?;
+                }
+            } else {
+                return Err(RuntimeError { message: "Cannot iterate this type".into(), pos: var.pos.clone() })
+            };
+        },
         _ => unreachable!()
     }
     Ok(())
@@ -111,6 +133,7 @@ pub fn eval_literal(token: &Token) -> Value {
         TokenType::Float(f) => Value::Float(*f),
         TokenType::ImFloat(f) => Value::Complex(Complex64::new(0.0, *f)),
         TokenType::String(s) => Value::String(s.clone()),
+        TokenType::Char(c) => Value::Char(*c),
         _ => todo!()
     }
 }
@@ -147,6 +170,7 @@ pub fn eval_assignment(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef
                 TokenType::MinusEqual => &prev_value - &r,
                 TokenType::StarEqual => &prev_value * &r,
                 TokenType::SlashEqual => &prev_value / &r,
+                TokenType::PercentEqual => &prev_value % &r,
                 _ => todo!() // TODO more operations
             }.map_err(|e| RuntimeError { message: e, pos: op.pos.clone() })?;
 
@@ -167,6 +191,7 @@ pub fn eval_binary(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef) ->
         TokenType::Minus => &l - &r,
         TokenType::Star => &l * &r,
         TokenType::Slash => &l / &r,
+        TokenType::Percent => &l % &r,
         _ => todo!() // TODO other operations
     }.map_err(|e| RuntimeError { message: e, pos: op.pos.clone() })
 }

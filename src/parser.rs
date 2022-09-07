@@ -54,24 +54,28 @@ impl Parser {
         let next = self.peek();
 
         match next.ty {
-            // let statement
             TokenType::Let => {
+                // let statement
                 self.next();
-                return self.letstmt()
-            }
+                self.letstmt()
+            },
             TokenType::LBrace => {
+                // block
                 self.next();
-                return self.block()
-            }
-
-            // if statement
+                self.block()
+            },
             TokenType::If => {
+                // if statement
                 self.next();
-                return self.ifstmt()
-            }
-
-            // fallback to an expression terminated with a semicolon
+                self.ifstmt()
+            },
+            TokenType::For => {
+                // for statement
+                self.next();
+                self.forstmt()
+            },
             _ => {
+                // fallback to an expression terminated with a semicolon
                 let expr = self.assignment()?;
                 if self.at_end() {
                     if self.repl {
@@ -83,10 +87,10 @@ impl Parser {
 
                 let next = self.next();
 
-                return match next.ty {
+                match next.ty {
                     TokenType::Semicolon => Ok(Stmt::Expr{expr}),
                     _ => Err(self.mk_error("Missing semicolon after statement"))
-                };
+                }
             }
         }
     }
@@ -152,6 +156,25 @@ impl Parser {
             if_clauses: if_clauses,
             else_clause: else_clause
         })
+    }
+
+    fn forstmt(&mut self) -> Result<Stmt, ParserError> {
+        self.err_on_eof()?;
+        let var = self.next();
+        if let TokenType::Ident(_) = &var.ty {
+            self.err_on_eof()?;
+            let x = self.next();
+            if x.ty != TokenType::Colon {
+                return Err(self.mk_error("Expected colon"))
+            }
+            self.err_on_eof()?;
+            let expr = self.assignment()?;
+            self.err_on_eof()?;
+            let stmt = self.statement()?;
+            Ok(Stmt::For{ var, expr, stmt: Box::new(stmt) })
+        } else {
+            Err(self.mk_error("Expected identifier after for"))
+        }
     }
 
     fn block(&mut self) -> Result<Stmt, ParserError> {
@@ -263,7 +286,7 @@ impl Parser {
         if matches!(next.ty, 
             TokenType::True | TokenType::False | TokenType::Nil 
             | TokenType::Int(_) | TokenType::Float(_) | TokenType::ImFloat(_)
-            | TokenType::String(_) 
+            | TokenType::String(_) | TokenType::Char(_)
         ) {
             Ok(Expr::Literal { value: next })
         } else if let TokenType::Ident(..) = next.ty {

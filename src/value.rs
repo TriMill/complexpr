@@ -1,4 +1,4 @@
-use std::{rc::Rc, collections::HashMap, ops::*};
+use std::{rc::Rc, collections::HashMap, ops::*, ascii::AsciiExt};
 
 use num_traits::Zero;
 
@@ -54,6 +54,7 @@ pub enum Value {
     Nil,
     Int(i64), Float(f64), Complex(Complex), Rational(Rational),
     Bool(bool), 
+    Char(char),
     String(Rc<str>), 
     List(Rc<Vec<Value>>), Map(Rc<HashMap<Value,Value>>),
 }
@@ -72,6 +73,16 @@ impl Value {
             _ => true
         }
     }
+
+    pub fn iter(&self) -> Result<Box<dyn Iterator<Item=Value> + '_>, ()> {
+        match self {
+            Value::String(s) 
+                => Ok(Box::new(s.chars()
+                    .map(|c| Value::Char(c)))),
+            Value::List(l) => Ok(Box::new(l.iter().cloned())),
+            _ => Err(())
+        }
+    }
 }
 
 
@@ -81,11 +92,23 @@ value_from!(Complex, Complex);
 value_from!(Rational, Rational);
 value_from!(Bool, bool);
 value_from!(String, String Rc<str>);
+value_from!(Char, char);
 value_from!(List, Vec<Value>);
 value_from!(Map, HashMap<Value,Value>);
 
 impl_numeric_op!(Add, add, {
     (String(a), String(b)) => Ok(((**a).to_owned() + b).into()),
+    (String(a), Char(c)) => {
+        let mut s = (**a).to_owned();
+        s.push(*c);
+        Ok(s.into())
+    },
+    (Char(c), String(a)) => Ok((c.to_string() + a).into()),
+    (Char(c1), Char(c2)) => {
+        let mut s = c1.to_string();
+        s.push(*c2);
+        Ok(s.into())
+    }
     (List(a), List(b)) => {
         let mut a = (**a).clone();
         a.append(&mut (**b).clone());

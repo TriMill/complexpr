@@ -18,7 +18,7 @@ impl fmt::Debug for Token {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TokenType {
-    Int(i64), Float(f64), ImFloat(f64), String(Rc<str>),
+    Int(i64), Float(f64), ImFloat(f64), String(Rc<str>), Char(char),
     Ident(Rc<str>),
 
     Plus, Minus, Star, Slash, Percent, DoubleSlash, Caret,
@@ -29,7 +29,7 @@ pub enum TokenType {
 
     Arrow, PipeColon, PipePoint, PipeQuestion, PipeAmper,
 
-    Comma, Semicolon, 
+    Comma, Semicolon, Colon, 
 
     LParen, RParen, LBrack, RBrack, LBrace, RBrace,
 
