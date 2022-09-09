@@ -1,6 +1,6 @@
-use std::{rc::Rc, cell::RefCell, fs::{File, self}, io::{BufReader, Read}};
+use std::{rc::Rc, cell::RefCell, fs};
 
-use complexpr::{eval::Environment, interpreter::interpret, value::Value};
+use complexpr::{eval::Environment, interpreter::interpret, value::Value, stdlib};
 use rustyline::{self, error::ReadlineError};
 
 const C_RESET: &'static str = "\x1b[0m";
@@ -26,6 +26,7 @@ fn repl() -> Result<(), Box<dyn std::error::Error>> {
     println!("Press {}Ctrl+D{} to exit.", C_BLUE, C_RESET);
     let mut rl = rustyline::Editor::<()>::new()?;
     let env = Rc::new(RefCell::new(Environment::new()));
+    stdlib::load(&mut env.borrow_mut());
     loop {
         let readline = rl.readline(PROMPT);
         match readline {
@@ -33,7 +34,7 @@ fn repl() -> Result<(), Box<dyn std::error::Error>> {
                 let result = interpret(&line, None, Some(env.clone()), true);
                 match result {
                     Ok(Value::Nil) => (),
-                    Ok(value) => println!("{:?}", value),
+                    Ok(value) => println!("{}", value.repr()),
                     Err(e) => println!("{}", e)
                 }
             }

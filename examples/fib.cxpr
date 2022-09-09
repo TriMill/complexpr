@@ -1,0 +1,9 @@
+let x = 0;
+let y = 0;
+let z = 1;
+while z < 1000000 {
+    x = y + z;
+    z = y;
+    y = x;
+    println(z);
+}

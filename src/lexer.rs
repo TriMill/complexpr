@@ -29,6 +29,7 @@ impl Lexer {
     }
 
     fn expect(&mut self, chars: &[char]) -> Option<char> {
+        if self.at_end() { return None }
         for c in chars {
             if self.code[self.current] == *c {
                 self.advance(*c == '\n');
@@ -126,7 +127,10 @@ impl Lexer {
                     _ => self.add_token(TokenType::Greater, ">")
                 },
                 '<' => match self.expect(&['=']) {
-                    Some('=') => self.add_token(TokenType::LessEqual, "<="),
+                    Some('=') => match self.expect(&['>']) {
+                        Some('>') => self.add_token(TokenType::Spaceship, "<=>"),
+                        _ => self.add_token(TokenType::LessEqual, "<="),
+                    }
                     _ => self.add_token(TokenType::Less, "<")
                 },
                 '&' => match self.expect(&['&']) {
@@ -176,6 +180,7 @@ impl Lexer {
             if self.at_end() { return Err(self.mk_error("Unexpected EOF in character literal")) }
             // TODO Escapes
         }
+        if self.at_end() { return Err(self.mk_error("Unexpected EOF in character literal")) }
         self.expect(&['\'']).ok_or(self.mk_error("Expected ' to terminate character literal"))?;
         self.add_token(TokenType::Char(c), self.collect_literal());
         Ok(())
@@ -186,6 +191,9 @@ impl Lexer {
         while !self.at_end() && self.peek() != '"' {
             if self.peek() == '\\' {
                 self.advance(false);
+                if self.at_end() { 
+                    return Err(self.mk_error("Unexpected EOF in string literal")) 
+                }
                 // TODO more escape codes! \xHH, \u{HH..} or maybe \uhhhh \Uhhhhhhhh
                 match self.peek() {
                     '0' => s.push('\0'),
@@ -205,7 +213,7 @@ impl Lexer {
             }
         }
         if self.at_end() {
-            return Err(self.mk_error("Unexpected EOF while parsing string"))
+            return Err(self.mk_error("Unexpected EOF in string literal"))
         }
         self.advance(false);
         self.add_token(TokenType::String(Rc::from(s)), self.collect_literal());
@@ -217,7 +225,7 @@ impl Lexer {
         while !self.at_end() && (self.peek().is_numeric() || self.peek() == '.') {
             if self.peek() == '.' {
                 if has_dot {
-                    return Err(self.mk_error("Numeric literals cannot contain two decimal points"))
+                    break;
                 } else {
                     has_dot = true;
                 }

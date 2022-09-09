@@ -1,4 +1,0 @@
-
-for c: "asdfghjkl" {
-    let b = 'q' + c;
-}

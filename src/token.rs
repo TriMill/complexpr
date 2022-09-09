@@ -25,7 +25,7 @@ pub enum TokenType {
     Bang, Amper, Pipe, DoubleAmper, DoublePipe,
 
     Equal, PlusEqual, MinusEqual, StarEqual, SlashEqual, PercentEqual, DoubleSlashEqual, CaretEqual,
-    DoubleEqual, BangEqual, Greater, GreaterEqual, Less, LessEqual,
+    DoubleEqual, BangEqual, Greater, GreaterEqual, Less, LessEqual, Spaceship,
 
     Arrow, PipeColon, PipePoint, PipeQuestion, PipeAmper,
 
@@ -49,6 +49,9 @@ impl TokenType {
             Self::PipeColon | Self::PipeAmper | Self::PipePoint 
             | Self::PipeQuestion => Some(OpType::Pipeline),
 
+            Self::Greater | Self::GreaterEqual | Self::Less | Self::LessEqual
+            | Self::DoubleEqual | Self::BangEqual | Self::Spaceship => Some(OpType::Comparison),
+
             Self::Equal | Self::PlusEqual | Self::MinusEqual
             | Self::StarEqual | Self::SlashEqual | Self::DoubleSlashEqual
             | Self::CaretEqual | Self::PercentEqual => Some(OpType::Assignment),
@@ -60,7 +63,7 @@ impl TokenType {
 
 #[derive(Clone,Copy,Debug,PartialEq)]
 pub enum OpType {
-    Assignment, Pipeline, Additive, Multiplicative, Exponential
+    Assignment, Comparison, Pipeline, Additive, Multiplicative, Exponential
 }
 
 impl OpType {

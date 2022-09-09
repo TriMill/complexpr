@@ -70,9 +70,14 @@ impl Parser {
                 self.ifstmt()
             },
             TokenType::For => {
-                // for statement
+                // for loop
                 self.next();
                 self.forstmt()
+            },
+            TokenType::While => {
+                // while loop
+                self.next();
+                self.whilestmt()
             },
             _ => {
                 // fallback to an expression terminated with a semicolon
@@ -177,6 +182,14 @@ impl Parser {
         }
     }
 
+    fn whilestmt(&mut self) -> Result<Stmt, ParserError> {
+        self.err_on_eof()?;
+        let expr = self.assignment()?;
+        self.err_on_eof()?;
+        let stmt = self.statement()?;
+        Ok(Stmt::While{ expr, stmt: Box::new(stmt) })
+    }
+
     fn block(&mut self) -> Result<Stmt, ParserError> {
         let mut stmts = vec![];
         while !self.at_end() && self.peek().ty != TokenType::RBrace {
@@ -200,9 +213,10 @@ impl Parser {
 
     fn commalist(&mut self, terminator: TokenType, parse_item: fn(&mut Parser) -> Result<Expr, ParserError>) -> Result<Vec<Expr>, ParserError> {
         let mut items = vec![];
-        while self.peek().ty != terminator {
+        while !self.at_end() && self.peek().ty != terminator {
             let expr = parse_item(self)?;
             items.push(expr);
+            self.err_on_eof()?;
             if self.peek().ty == TokenType::Comma {
                 self.next();
             } else if self.peek().ty == terminator {
@@ -211,6 +225,7 @@ impl Parser {
                 return Err(self.mk_error(format!("Expected Comma or {:?} after list", terminator)))
             }
         }
+        self.err_on_eof()?;
         self.next();
         Ok(items)
     }
@@ -233,7 +248,11 @@ impl Parser {
     }
 
     fn pipeline(&mut self) -> Result<Expr, ParserError> {
-        self.expr(OpType::Pipeline, Self::additive)
+        self.expr(OpType::Pipeline, Self::comparison)
+    }
+
+    fn comparison(&mut self) -> Result<Expr, ParserError> {
+        self.expr(OpType::Comparison, Self::additive)
     }
 
     fn additive(&mut self) -> Result<Expr, ParserError> {
@@ -272,9 +291,9 @@ impl Parser {
     fn fncall(&mut self) -> Result<Expr, ParserError> {
         let expr = self.expr_base()?;
         if !self.at_end() && self.peek().ty == TokenType::LParen {
-            self.next();
+            let lparen = self.next();
             let args = self.commalist(TokenType::RParen, Self::assignment)?;
-            Ok(Expr::FuncCall { func: Box::new(expr), args })
+            Ok(Expr::FuncCall { func: Box::new(expr), args, pos: lparen.pos.clone() })
         } else {
             Ok(expr)
         }
@@ -298,6 +317,9 @@ impl Parser {
             } else {
                 Ok(expr)
             }
+        } else if next.ty == TokenType::LBrack {
+            let items = self.commalist(TokenType::RBrack, Self::assignment)?;
+            Ok(Expr::List { items })
         } else {
             Err(self.mk_error(format!("Unexpected token: {:?}", next.ty)))
         }

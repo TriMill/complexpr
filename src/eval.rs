@@ -1,17 +1,14 @@
 use std::{collections::HashMap, rc::Rc, cell::RefCell};
 
-use num_complex::Complex64;
-
-use crate::{value::Value, expr::{Stmt, Expr}, token::{TokenType, Token, OpType}, RuntimeError};
-
+use crate::{value::{Value, Complex}, expr::{Stmt, Expr}, token::{TokenType, Token, OpType}, RuntimeError};
 
 #[derive(Debug)]
 pub struct Environment {
     parent: Option<EnvRef>,
-    map: HashMap<Rc<str>, Value>
+    map: HashMap<Rc<str>, Value>,
 }
 
-type EnvRef = Rc<RefCell<Environment>>;
+pub type EnvRef = Rc<RefCell<Environment>>;
 
 impl Environment {
     pub fn new() -> Self {
@@ -27,24 +24,20 @@ impl Environment {
     }
 
     pub fn get(&self, name: &str) -> Result<Value,()> {
-        let x = match self.map.get(name) {
+        match self.map.get(name) {
             Some(v) => Ok(v.clone()),
             None => match self.parent {
                 Some(ref p) => p.borrow().get(name),
                 None => Err(())
             }
-        };
-        println!("get {}: {:?}", name, x);
-        x
+        }
     }
 
     pub fn declare(&mut self, name: Rc<str>, value: Value) {
-        println!("declare {}: {:?}", name, value);
         self.map.insert(name, value);
     }
 
     pub fn set(&mut self, name: Rc<str>, value: Value) -> Result<(),()> {
-        println!("set {}: {:?}", name, value);
         match self.map.contains_key(&name) {
             true => { self.map.insert(name, value); Ok(()) },
             false => match self.parent {
@@ -104,7 +97,15 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), RuntimeError> {
                 return Err(RuntimeError { message: "Cannot iterate this type".into(), pos: var.pos.clone() })
             };
         },
-        _ => unreachable!()
+        Stmt::While { expr, stmt } => {
+            loop {
+                let cond = eval_expr(expr, env.clone())?;
+                if !cond.truthy() {
+                    break
+                }
+                eval_stmt(&stmt, env.clone())?;
+            }
+        },
     }
     Ok(())
 }
@@ -118,8 +119,26 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
                 => eval_assignment(lhs, rhs, op, env),
             Some(OpType::Additive) | Some(OpType::Multiplicative) 
                 => eval_binary(lhs, rhs, op, env),
+            Some(OpType::Comparison)
+                => eval_comp(lhs, rhs, op, env),
             o => todo!("{:?}", o) // TODO other operations
         },
+        Expr::List { items } => {
+            let mut list = Vec::with_capacity(items.len());
+            for item in items {
+                list.push(eval_expr(item, env.clone())?);
+            }
+            Ok(Value::List(Rc::new(list)))
+        },
+        Expr::FuncCall { func, args, pos } => {
+            let func = eval_expr(&func, env.clone())?;
+            let mut arg_values = Vec::with_capacity(args.len());
+            for arg in args {
+                let result = eval_expr(arg, env.clone())?;
+                arg_values.push(result);
+            }
+            func.call(arg_values, pos)
+        }
         e => todo!("{:?}", e) // TODO other expression types
     }
 }
@@ -131,7 +150,7 @@ pub fn eval_literal(token: &Token) -> Value {
         TokenType::False => Value::Bool(false),
         TokenType::Int(n) => Value::Int(*n),
         TokenType::Float(f) => Value::Float(*f),
-        TokenType::ImFloat(f) => Value::Complex(Complex64::new(0.0, *f)),
+        TokenType::ImFloat(f) => Value::Complex(Complex::new(0.0, *f)),
         TokenType::String(s) => Value::String(s.clone()),
         TokenType::Char(c) => Value::Char(*c),
         _ => todo!()
@@ -194,4 +213,33 @@ pub fn eval_binary(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef) ->
         TokenType::Percent => &l % &r,
         _ => todo!() // TODO other operations
     }.map_err(|e| RuntimeError { message: e, pos: op.pos.clone() })
+}
+
+pub fn eval_comp(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
+    let l = eval_expr(lhs, env.clone())?;
+    let r = eval_expr(rhs, env)?;
+    let mk_err = || RuntimeError {
+        message: format!("Cannot compare {:?} with {:?}", l, r),
+        pos: op.pos.clone()
+    };
+    match op.ty {
+        TokenType::DoubleEqual => Ok(Value::Bool(l == r)),
+        TokenType::BangEqual => Ok(Value::Bool(l != r)),
+        TokenType::Greater => l.partial_cmp(&r)
+            .ok_or_else(mk_err)
+            .map(|o| Value::from(o.is_gt())),
+        TokenType::Less => l.partial_cmp(&r)
+            .ok_or_else(mk_err)
+            .map(|o| Value::from(o.is_lt())),
+        TokenType::GreaterEqual => l.partial_cmp(&r)
+            .ok_or_else(mk_err)
+            .map(|o| Value::from(o.is_ge())),
+        TokenType::LessEqual => l.partial_cmp(&r)
+            .ok_or_else(mk_err)
+            .map(|o| Value::from(o.is_le())),
+        TokenType::Spaceship => l.partial_cmp(&r)
+            .ok_or_else(mk_err)
+            .map(|o| Value::from(o as i8)),
+        _ => unreachable!()
+    }
 }

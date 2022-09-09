@@ -1,0 +1,2 @@
+# Prints the string "Hello, world!" followed by a newline
+println("Hello, world!");
