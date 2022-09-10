@@ -27,7 +27,8 @@ pub enum Expr {
     Ident { value: Token },
     Literal { value: Token },
     List { items: Vec<Expr> },
-    FuncCall { func: Box<Expr>, args: Vec<Expr>, pos: Position }
+    FuncCall { func: Box<Expr>, args: Vec<Expr>, pos: Position },
+    Index { lhs: Box<Expr>, index: Box<Expr>, pos: Position },
 }
 
 impl fmt::Debug for Expr {
@@ -39,13 +40,14 @@ impl fmt::Debug for Expr {
             Self::Literal { value } => write!(f, "(lit {:?})", value),
             Self::List { items } => write!(f, "(list {:?})", items),
             Self::FuncCall { func, args, .. } => write!(f, "(call {:?} {:?})", func, args),
+            Self::Index { lhs, index, .. } => write!(f, "(index {:?} {:?})", lhs, index),
         }
     }
 }
 
 impl Expr {
     pub fn is_lvalue(&self) -> bool {
-        matches!(self, Expr::Ident{..})
+        return matches!(self, Expr::Ident{..} | Expr::Index{..})
     }
 
     pub fn is_assignment(&self) -> bool {

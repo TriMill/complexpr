@@ -1,4 +1,4 @@
-use std::{rc::Rc, collections::HashMap, ops::*, fmt, cmp::Ordering};
+use std::{rc::Rc, collections::HashMap, ops::*, fmt, cmp::Ordering, cell::RefCell};
 
 use num_traits::{Zero, ToPrimitive};
 
@@ -41,7 +41,7 @@ pub enum Value {
     Bool(bool), 
     Char(char),
     String(Rc<str>), 
-    List(Rc<Vec<Value>>), Map(Rc<HashMap<Value,Value>>),
+    List(Rc<RefCell<Vec<Value>>>), Map(Rc<HashMap<Value,Value>>),
     BuiltinFn(BuiltinFn),
     Data(Data),
 }
@@ -55,7 +55,7 @@ impl Value {
             Complex(z) => !z.is_zero(),
             Rational(r) => !r.is_zero(),
             String(s) => !s.len() == 0,
-            List(l) => !l.len() == 0,
+            List(l) => !l.borrow().len() == 0,
             Map(m) => !m.len() == 0,
             _ => true
         }
@@ -66,7 +66,7 @@ impl Value {
             Value::String(s) 
                 => Ok(Box::new(s.chars()
                     .map(|c| Value::Char(c)))),
-            Value::List(l) => Ok(Box::new(l.iter().cloned())),
+            Value::List(l) => Ok(Box::new(l.borrow().clone().into_iter())),
             _ => Err(())
         }
     }
@@ -120,11 +120,49 @@ impl Value {
             Self::Complex(z) => Rc::from(z.to_string()),
             Self::Char(c) => Rc::from(format!("'{}'", c)), // TODO escaping
             Self::String(s) => Rc::from(format!("\"{}\"", s)), // TODO escaping
-            Self::List(l) => Rc::from(format!("{:?}", l)), // TODO fix
+            Self::List(l) => Rc::from(format!("{:?}", l.borrow())), // TODO fix
             Self::Map(m) => Rc::from(format!("{:?}", m)), // TODO fix
             Self::Type(_) => todo!(),
             Self::BuiltinFn(bf) => Rc::from(format!("<builtin fn {} at {:?}>", bf.name, bf.func as *const ())),
             Self::Data(_) => todo!(),
+        }
+    }
+
+    pub fn index(&self, idx: &Value) -> Result<Value, String> {
+        match self {
+            Self::String(s) => match idx {
+                Value::Int(i) if *i >= 0 => s.chars().nth(*i as usize)
+                    .ok_or_else(|| format!("String index {} out of bounds for length {}", i, s.chars().count()))
+                    .map(|c| Value::Char(c)),
+                Value::Int(i) => Err(format!("String index {} cannot be negative", i)),
+                _ => Err(format!("Cannot index {:?} with {:?}", self, idx))
+            },
+            Self::List(l) => match idx {
+                Value::Int(i) if *i >= 0 => l.borrow().get(*i as usize)
+                    .ok_or_else(|| format!("List index {} out of bounds for length {}", i, l.borrow().len()))
+                    .map(|v| v.clone()),
+                Value::Int(i) => Err(format!("List index {} cannot be negative", i)),
+                _ => Err(format!("Cannot index {:?} with {:?}", self, idx))
+            }
+            Self::Map(_) => todo!(),
+            v => Err(format!("Cannot index into {:?}", v))
+        }
+    }
+
+    pub fn assign_index(&self, idx: &Value, value: Value) -> Result<(), String> {
+        match self {
+            Self::String(s) => todo!("Can't mutate strings yet"),
+            Self::List(l) => match idx {
+                Value::Int(i) if *i >= 0 && (*i as usize) < l.borrow().len() => {
+                    l.borrow_mut()[*i as usize] = value;
+                    Ok(())
+                }
+                Value::Int(i) if *i >= 0 => Err(format!("List index {} out of bounds for length {}", i, l.borrow().len())),
+                Value::Int(i) => Err(format!("List index {} cannot be negative", i)),
+                _ => Err(format!("Cannot index {:?} with {:?}", self, idx))
+            }
+            Self::Map(_) => todo!(),
+            v => Err(format!("Cannot index into {:?}", v))
         }
     }
 }
@@ -202,6 +240,23 @@ macro_rules! value_from {
     };
 }
 
+impl From<Vec<Value>> for Value {
+    fn from(x: Vec<Value>) -> Self {
+        Self::List(RefCell::new(x).into())
+    }
+}
+
+value_from!(Int, u8 u16 u32 i8 i16 i32 i64);
+value_from!(Float, f32 f64);
+value_from!(Complex, Complex);
+value_from!(Rational, Rational);
+value_from!(Bool, bool);
+value_from!(String, String Rc<str>);
+value_from!(List, RefCell<Vec<Value>>);
+value_from!(Char, char);
+value_from!(Map, HashMap<Value,Value>);
+
+
 macro_rules! impl_numeric_op {
     ($optrait:ty, $fnname:ident, { $($bonus:tt)* }) => {
         impl $optrait for &Value {
@@ -235,15 +290,15 @@ macro_rules! impl_numeric_op {
     }
 }
 
-value_from!(Int, u8 u16 u32 i8 i16 i32 i64);
-value_from!(Float, f32 f64);
-value_from!(Complex, Complex);
-value_from!(Rational, Rational);
-value_from!(Bool, bool);
-value_from!(String, String Rc<str>);
-value_from!(Char, char);
-value_from!(List, Vec<Value>);
-value_from!(Map, HashMap<Value,Value>);
+impl Neg for Value {
+    type Output = Result<Value, String>;
+    fn neg(self) -> Self::Output {
+        match self {
+            Value::Int(a) => Ok(Value::Int(-a)),
+            _ => Err(format!("Unsupported operation 'neg' on {:?}", self))
+        }
+    }
+}
 
 impl_numeric_op!(Add, add, {
     (String(a), String(b)) => Ok(((**a).to_owned() + b).into()),
@@ -260,11 +315,16 @@ impl_numeric_op!(Add, add, {
     }
     (List(a), List(b)) => {
         let mut a = (**a).clone();
-        a.append(&mut (**b).clone());
+        a.borrow_mut().append(&mut (**b).borrow().clone());
         Ok(a.into())
     },
 });
 impl_numeric_op!(Sub, sub, {});
-impl_numeric_op!(Mul, mul, {});
+impl_numeric_op!(Mul, mul, {
+    (String(a), Int(b)) | (Int(b), String(a)) 
+        => Ok(Value::from(a.chars().cycle().take(a.chars().count()*(*b as usize)).collect::<std::string::String>())),
+    (List(a), Int(b)) | (Int(b), List(a))
+        => Ok(Value::from(a.borrow().iter().cycle().take(a.borrow().len()*(*b as usize)).cloned().collect::<Vec<Value>>())),
+});
 impl_numeric_op!(Div, div, {});
 impl_numeric_op!(Rem, rem, {});

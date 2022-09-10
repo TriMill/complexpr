@@ -123,22 +123,28 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
                 => eval_comp(lhs, rhs, op, env),
             o => todo!("{:?}", o) // TODO other operations
         },
+        Expr::Unary { arg, op } => eval_unary(arg, op, env),
         Expr::List { items } => {
             let mut list = Vec::with_capacity(items.len());
             for item in items {
                 list.push(eval_expr(item, env.clone())?);
             }
-            Ok(Value::List(Rc::new(list)))
+            Ok(Value::from(list))
         },
         Expr::FuncCall { func, args, pos } => {
-            let func = eval_expr(&func, env.clone())?;
+            let func = eval_expr(func, env.clone())?;
             let mut arg_values = Vec::with_capacity(args.len());
             for arg in args {
                 let result = eval_expr(arg, env.clone())?;
                 arg_values.push(result);
             }
             func.call(arg_values, pos)
-        }
+        },
+        Expr::Index { lhs, index, pos } => {
+            let l = eval_expr(lhs, env.clone())?;
+            let idx = eval_expr(index, env)?;
+            l.index(&idx).map_err(|e| RuntimeError { message: e, pos: pos.clone() })
+        },
         e => todo!("{:?}", e) // TODO other expression types
     }
 }
@@ -197,6 +203,27 @@ pub fn eval_assignment(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef
                 .set(name.clone(), result.clone()).expect("unreachable");
             Ok(result)
         }
+    } else if let Expr::Index { lhs, index, pos } = &**lhs {
+        let l = eval_expr(lhs, env.clone())?;
+        let idx = eval_expr(index, env.clone())?;
+        if op.ty == TokenType::Equal {
+            let r = eval_expr(rhs, env)?;
+            l.assign_index(&idx, r.clone()).map_err(|e| RuntimeError { message: e, pos: pos.clone() })?;
+            Ok(r)
+        } else {
+            let prev_value = l.index(&idx).map_err(|e| RuntimeError { message: e, pos: pos.clone() })?;
+            let r = eval_expr(rhs, env)?;
+            let result = match op.ty {
+                TokenType::PlusEqual => &prev_value + &r,
+                TokenType::MinusEqual => &prev_value - &r,
+                TokenType::StarEqual => &prev_value * &r,
+                TokenType::SlashEqual => &prev_value / &r,
+                TokenType::PercentEqual => &prev_value % &r,
+                _ => todo!() // TODO more operations
+            }.map_err(|e| RuntimeError { message: e, pos: op.pos.clone() })?;
+            l.assign_index(&idx, result.clone()).map_err(|e| RuntimeError { message: e, pos: pos.clone() })?;
+            Ok(result)
+        }
     } else {
         unreachable!()
     }
@@ -242,4 +269,12 @@ pub fn eval_comp(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef) -> R
             .map(|o| Value::from(o as i8)),
         _ => unreachable!()
     }
+}
+
+pub fn eval_unary(arg: &Box<Expr>, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
+    let a = eval_expr(arg, env)?;
+    match op.ty {
+        TokenType::Minus => -a,
+        _ => todo!(),
+    }.map_err(|e| RuntimeError { message: e, pos: op.pos.clone() })
 }

@@ -289,14 +289,31 @@ impl Parser {
     }
 
     fn fncall(&mut self) -> Result<Expr, ParserError> {
-        let expr = self.expr_base()?;
-        if !self.at_end() && self.peek().ty == TokenType::LParen {
-            let lparen = self.next();
-            let args = self.commalist(TokenType::RParen, Self::assignment)?;
-            Ok(Expr::FuncCall { func: Box::new(expr), args, pos: lparen.pos.clone() })
-        } else {
-            Ok(expr)
+        let mut expr = self.expr_base()?;
+        while !self.at_end() {
+            match self.peek().ty {
+                TokenType::LParen => expr = self.fncall_inner(expr)?,
+                TokenType::LBrack => expr = self.arrindex_inner(expr)?,
+                _ => return Ok(expr)
+            }
         }
+        Ok(expr)
+    }
+
+    fn fncall_inner(&mut self, expr: Expr) -> Result<Expr, ParserError> {
+        let lparen = self.next();
+        let args = self.commalist(TokenType::RParen, Self::assignment)?;
+        Ok(Expr::FuncCall { func: Box::new(expr), args, pos: lparen.pos.clone() })
+    }
+
+    fn arrindex_inner(&mut self, expr: Expr) -> Result<Expr, ParserError> {
+        let lbrack = self.next();
+        let index = self.assignment()?;
+        self.err_on_eof()?;
+        if self.next().ty != TokenType::RBrack {
+            return Err(ParserError { message: "Expected RBrack after collection index".into(), pos: lbrack.pos.clone() });
+        }
+        Ok(Expr::Index { lhs: Box::new(expr), index: Box::new(index), pos: lbrack.pos.clone() })
     }
 
     fn expr_base(&mut self) -> Result<Expr, ParserError> {

@@ -1,0 +1,68 @@
+while true {
+    print("bf> ");
+    let program = input();
+    let tape = [0]*256;
+    let ptr = 0;
+    let i = 0;
+    while i < len(program) {
+        let op = program[i];
+        if op == '+' {
+            tape[ptr] += 1;
+            if tape[ptr] >= 256 {
+                tape[ptr] -= 256;
+            }
+        } elif op == '-' {
+            tape[ptr] -= 1;
+            if tape[ptr] < 0 {
+                tape[ptr] += 256;
+            }
+        } elif op == '>' {
+            ptr += 1;
+        } elif op == '<' {
+            ptr -= 1;
+        } elif op == '.' {
+            print(chr(tape[ptr]));
+        } elif op == ',' {
+            tape[ptr] = ord(input()[0]);
+        } elif op == '[' {
+            if tape[ptr] == 0 {
+                let depth = 0;
+                let running = true;
+                while running {
+                    i += 1;
+                    if program[i] == ']' {
+                        if depth == 0 {
+                            running = false;
+                        }
+                        depth -= 1;
+                    } elif program[i] == '[' {
+                        depth += 1;
+                    }
+                }
+            }
+        } elif op == ']' {
+            if tape[ptr] != 0 {
+                let depth = 0;
+                let running = true;
+                while running {
+                    i -= 1;
+                    if program[i] == '[' {
+                        if depth == 0 {
+                            running = false;
+                        }
+                        depth -= 1;
+                    } elif program[i] == ']' {
+                        depth += 1;
+                    }
+                }
+            }
+        }
+
+        if ptr >= len(tape) {
+            tape += [0]*256;
+        }
+
+        i += 1;
+    }
+    println("");
+}
