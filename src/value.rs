@@ -151,7 +151,7 @@ impl Value {
 
     pub fn assign_index(&self, idx: &Value, value: Value) -> Result<(), String> {
         match self {
-            Self::String(s) => todo!("Can't mutate strings yet"),
+            Self::String(_) => todo!("Can't mutate strings yet"),
             Self::List(l) => match idx {
                 Value::Int(i) if *i >= 0 && (*i as usize) < l.borrow().len() => {
                     l.borrow_mut()[*i as usize] = value;
@@ -314,7 +314,7 @@ impl_numeric_op!(Add, add, {
         Ok(s.into())
     }
     (List(a), List(b)) => {
-        let mut a = (**a).clone();
+        let a = (**a).clone();
         a.borrow_mut().append(&mut (**b).borrow().clone());
         Ok(a.into())
     },

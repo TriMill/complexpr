@@ -261,7 +261,11 @@ impl Parser {
     }
 
     fn pipeline(&mut self) -> Result<Expr, ParserError> {
-        self.expr(OpType::Pipeline, Self::comparison)
+        self.expr(OpType::Pipeline, Self::boolean)
+    }
+
+    fn boolean(&mut self) -> Result<Expr, ParserError> {
+        self.expr(OpType::Boolean, Self::comparison)
     }
 
     fn comparison(&mut self) -> Result<Expr, ParserError> {

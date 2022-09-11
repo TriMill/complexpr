@@ -58,6 +58,8 @@ impl TokenType {
             | Self::StarEqual | Self::SlashEqual | Self::DoubleSlashEqual
             | Self::CaretEqual | Self::PercentEqual => Some(OpType::Assignment),
 
+            Self::DoubleAmper | Self::DoublePipe => Some(OpType::Boolean),
+
             _ => None
         }
     }
@@ -65,7 +67,7 @@ impl TokenType {
 
 #[derive(Clone,Copy,Debug,PartialEq)]
 pub enum OpType {
-    Assignment, Comparison, Pipeline, Additive, Multiplicative, Exponential
+    Assignment, Comparison, Pipeline, Additive, Multiplicative, Exponential, Boolean
 }
 
 impl OpType {

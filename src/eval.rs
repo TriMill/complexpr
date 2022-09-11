@@ -150,8 +150,10 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
         Expr::Binary { lhs, rhs, op } => match op.ty.get_op_type() {
             Some(OpType::Assignment) 
                 => eval_assignment(lhs, rhs, op, env),
-            Some(OpType::Additive) | Some(OpType::Multiplicative) 
+            Some(OpType::Additive) | Some(OpType::Multiplicative)
                 => eval_binary(lhs, rhs, op, env),
+            Some(OpType::Boolean) 
+                => eval_boolean(lhs, rhs, op, env),
             Some(OpType::Comparison)
                 => eval_comp(lhs, rhs, op, env),
             o => todo!("{:?}", o) // TODO other operations
@@ -178,7 +180,6 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
             let idx = eval_expr(index, env)?;
             l.index(&idx).map_err(|e| RuntimeError { message: e, pos: pos.clone() })
         },
-        e => todo!("{:?}", e) // TODO other expression types
     }
 }
 
@@ -275,6 +276,23 @@ pub fn eval_binary(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef) ->
     }.map_err(|e| RuntimeError { message: e, pos: op.pos.clone() })
 }
 
+pub fn eval_boolean(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
+    let l = eval_expr(lhs, env.clone())?;
+    match op.ty {
+        TokenType::DoubleAmper => if l.truthy() {
+            eval_expr(rhs, env)
+        } else { 
+            Ok(l)
+        },
+        TokenType::DoublePipe => if !l.truthy() {
+            eval_expr(rhs, env)
+        } else { 
+            Ok(l)
+        },
+        _ => unreachable!()
+    }
+}
+
 pub fn eval_comp(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
     let l = eval_expr(lhs, env.clone())?;
     let r = eval_expr(rhs, env)?;
@@ -308,6 +326,7 @@ pub fn eval_unary(arg: &Box<Expr>, op: &Token, env: EnvRef) -> Result<Value, Run
     let a = eval_expr(arg, env)?;
     match op.ty {
         TokenType::Minus => -a,
+        TokenType::Bang => Ok(Value::Bool(!a.truthy())),
         _ => todo!(),
     }.map_err(|e| RuntimeError { message: e, pos: op.pos.clone() })
 }
