@@ -23,12 +23,12 @@ impl Environment {
         Self { parent: Some(parent), map: HashMap::new() }
     }
 
-    pub fn get(&self, name: &str) -> Result<Value,()> {
+    pub fn get(&self, name: &str) -> Option<Value> {
         match self.map.get(name) {
-            Some(v) => Ok(v.clone()),
+            Some(v) => Some(v.clone()),
             None => match self.parent {
                 Some(ref p) => p.borrow().get(name),
-                None => Err(())
+                None => None
             }
         }
     }
@@ -45,6 +45,12 @@ impl Environment {
                 None => Err(())
             }
         }
+    }
+}
+
+impl Default for Environment {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -69,7 +75,7 @@ impl From<RuntimeError> for Unwind {
     }
 }
 
-fn unwrap_ident_token<'a>(tok: &'a Token) -> &'a Rc<str> {
+fn unwrap_ident_token(tok: &Token) -> &Rc<str> {
     if let Token { ty: TokenType::Ident(s),.. } = tok {
         s
     } else {
@@ -97,31 +103,33 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), Unwind> {
             for ic in if_clauses {
                 let cond = eval_expr(&ic.0, env.clone())?;
                 if cond.truthy() {
-                    return eval_stmt(&ic.1, env.clone())
+                    return eval_stmt(&ic.1, env)
                 }
             }
             if let Some(ec) = else_clause {
-                return eval_stmt(&ec, env)
+                return eval_stmt(ec, env)
             }
         },
         Stmt::For { var, expr, stmt } => {
             let name = unwrap_ident_token(var);
             let iter = eval_expr(expr, env.clone())?;
             env.borrow_mut().declare(name.clone(), Value::Nil);
-            if let Ok(i) = iter.iter() {
+            let iterator = iter.iter();
+            if let Err(e) = iterator {
+                return Err(RuntimeError { message: e, pos: var.pos.clone() }.into())
+            }
+            if let Ok(i) = iterator {
                 for v in i {
                     let env = env.clone();
                     env.borrow_mut().set(name.clone(), v).expect("unreachable");
-                    match eval_stmt(&stmt, env) {
+                    match eval_stmt(stmt, env) {
                         Ok(_) => (),
                         Err(Unwind::Break{..}) => break,
                         Err(Unwind::Continue{..}) => continue,
                         Err(e) => return Err(e)
                     }
                 }
-            } else {
-                return Err(RuntimeError { message: "Cannot iterate this type".into(), pos: var.pos.clone() }.into())
-            };
+            } 
         },
         Stmt::While { expr, stmt } => {
             loop {
@@ -129,7 +137,7 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), Unwind> {
                 if !cond.truthy() {
                     break
                 }
-                match eval_stmt(&stmt, env.clone()) {
+                match eval_stmt(stmt, env.clone()) {
                     Ok(_) => (),
                     Err(Unwind::Break{..}) => break,
                     Err(Unwind::Continue{..}) => continue,
@@ -201,15 +209,15 @@ pub fn eval_ident(token: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
     if let Token { ty: TokenType::Ident(name), ..} = token {
         env.borrow_mut()
             .get(name)
-            .map_err(|_| RuntimeError { message: "Variable not defined in scope".into(), pos: token.pos.clone() })
+            .ok_or_else(|| RuntimeError { message: "Variable not defined in scope".into(), pos: token.pos.clone() })
     } else { 
         unreachable!() 
     }
 }
 
-pub fn eval_assignment(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
+pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
     // lhs must be an identifier (checked in parser)
-    if let Expr::Ident{value: Token{ty: TokenType::Ident(name),..}} = &**lhs {
+    if let Expr::Ident{value: Token{ty: TokenType::Ident(name),..}} = lhs {
         if op.ty == TokenType::Equal {
             // plain assignment
             let r = eval_expr(rhs, env.clone())?;
@@ -221,7 +229,7 @@ pub fn eval_assignment(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef
             // compound assignment
             let prev_value = env.borrow_mut()
                 .get(name)
-                .map_err(|_| RuntimeError { message: "Variable not defined in scope".into(), pos: op.pos.clone()})?;
+                .ok_or_else(|| RuntimeError { message: "Variable not defined in scope".into(), pos: op.pos.clone()})?;
             let r = eval_expr(rhs, env.clone())?;
 
             let result = match op.ty {
@@ -237,7 +245,7 @@ pub fn eval_assignment(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef
                 .set(name.clone(), result.clone()).expect("unreachable");
             Ok(result)
         }
-    } else if let Expr::Index { lhs, index, pos } = &**lhs {
+    } else if let Expr::Index { lhs, index, pos } = lhs {
         let l = eval_expr(lhs, env.clone())?;
         let idx = eval_expr(index, env.clone())?;
         if op.ty == TokenType::Equal {
@@ -263,7 +271,7 @@ pub fn eval_assignment(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef
     }
 }
 
-pub fn eval_binary(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
+pub fn eval_binary(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
     let l = eval_expr(lhs, env.clone())?;
     let r = eval_expr(rhs, env)?;
     match op.ty {
@@ -276,7 +284,7 @@ pub fn eval_binary(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef) ->
     }.map_err(|e| RuntimeError { message: e, pos: op.pos.clone() })
 }
 
-pub fn eval_boolean(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
+pub fn eval_boolean(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
     let l = eval_expr(lhs, env.clone())?;
     match op.ty {
         TokenType::DoubleAmper => if l.truthy() {
@@ -293,7 +301,7 @@ pub fn eval_boolean(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef) -
     }
 }
 
-pub fn eval_comp(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
+pub fn eval_comp(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
     let l = eval_expr(lhs, env.clone())?;
     let r = eval_expr(rhs, env)?;
     let mk_err = || RuntimeError {
@@ -322,7 +330,7 @@ pub fn eval_comp(lhs: &Box<Expr>, rhs: &Box<Expr>, op: &Token, env: EnvRef) -> R
     }
 }
 
-pub fn eval_unary(arg: &Box<Expr>, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
+pub fn eval_unary(arg: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
     let a = eval_expr(arg, env)?;
     match op.ty {
         TokenType::Minus => -a,

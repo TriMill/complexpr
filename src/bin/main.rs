@@ -3,9 +3,9 @@ use std::{rc::Rc, cell::RefCell, fs};
 use complexpr::{eval::Environment, interpreter::interpret, value::Value, stdlib};
 use rustyline::{self, error::ReadlineError};
 
-const C_RESET: &'static str = "\x1b[0m";
-const C_BLUE: &'static str = "\x1b[94m";
-const PROMPT: &'static str = "\x1b[94m>> \x1b[0m";
+const C_RESET: &str = "\x1b[0m";
+const C_BLUE: &str = "\x1b[94m";
+const PROMPT: &str = "\x1b[94m>> \x1b[0m";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();

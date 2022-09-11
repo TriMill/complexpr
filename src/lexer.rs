@@ -15,7 +15,7 @@ pub struct Lexer {
 
 impl Lexer {
     pub fn new(code: &str, filename: Option<String>) -> Self {
-        Self { filename: filename.map(|s| Rc::from(s)), line: 1, col: 1, tokens: vec![], start: 0, current: 0, code: code.chars().collect() }
+        Self { filename: filename.map(Rc::from), line: 1, col: 1, tokens: vec![], start: 0, current: 0, code: code.chars().collect() }
     }
 
     pub fn into_tokens(self) -> Vec<Token> {
@@ -181,7 +181,7 @@ impl Lexer {
             // TODO Escapes
         }
         if self.at_end() { return Err(self.mk_error("Unexpected EOF in character literal")) }
-        self.expect(&['\'']).ok_or(self.mk_error("Expected ' to terminate character literal"))?;
+        self.expect(&['\'']).ok_or_else(|| self.mk_error("Expected ' to terminate character literal"))?;
         self.add_token(TokenType::Char(c), self.collect_literal());
         Ok(())
     }

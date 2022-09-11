@@ -65,7 +65,7 @@ impl TokenType {
     }
 }
 
-#[derive(Clone,Copy,Debug,PartialEq)]
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
 pub enum OpType {
     Assignment, Comparison, Pipeline, Additive, Multiplicative, Exponential, Boolean
 }

@@ -126,10 +126,10 @@ impl Parser {
                     }
                 }
                 let next = self.next();
-                return match next.ty {
+                match next.ty {
                     TokenType::Semicolon => Ok(Stmt::Let{lhs: tok, rhs: Some(*rhs)}),
                     _ => Err(self.mk_error("Missing semicolon after 'let' statement".to_owned()))
-                };
+                }
             } else {
                 Err(self.mk_error("Invalid expression after 'let'".to_owned()))
             }
@@ -142,10 +142,10 @@ impl Parser {
                 }
             }
             let next = self.next();
-            return match next.ty {
+            match next.ty {
                 TokenType::Semicolon => Ok(Stmt::Let{lhs: tok, rhs: None}),
                 _ => Err(self.mk_error("Missing semicolon after 'let' statement".to_owned()))
-            };
+            }
         } else {
             Err(self.mk_error("Invalid expression after 'let'".to_owned()))
         }
@@ -164,15 +164,13 @@ impl Parser {
                 _ => break
             }
         }
-        let else_clause;
-        if ec {
-            else_clause = Some(Box::new(self.statement()?));
+        let else_clause = if ec {
+            Some(Box::new(self.statement()?))
         } else {
-            else_clause = None;
-        }
-        return Ok(Stmt::If{ 
-            if_clauses: if_clauses,
-            else_clause: else_clause
+            None
+        };
+        Ok(Stmt::If{ 
+            if_clauses, else_clause
         })
     }
 
@@ -210,7 +208,7 @@ impl Parser {
         }
         self.err_on_eof()?;
         self.next();
-        return Ok(Stmt::Block{ stmts })
+        Ok(Stmt::Block{ stmts })
     }
 
     // Generic method for left-associative operators
@@ -320,7 +318,7 @@ impl Parser {
     fn fncall_inner(&mut self, expr: Expr) -> Result<Expr, ParserError> {
         let lparen = self.next();
         let args = self.commalist(TokenType::RParen, Self::assignment)?;
-        Ok(Expr::FuncCall { func: Box::new(expr), args, pos: lparen.pos.clone() })
+        Ok(Expr::FuncCall { func: Box::new(expr), args, pos: lparen.pos })
     }
 
     fn arrindex_inner(&mut self, expr: Expr) -> Result<Expr, ParserError> {
@@ -328,9 +326,9 @@ impl Parser {
         let index = self.assignment()?;
         self.err_on_eof()?;
         if self.next().ty != TokenType::RBrack {
-            return Err(ParserError { message: "Expected RBrack after collection index".into(), pos: lbrack.pos.clone() });
+            return Err(ParserError { message: "Expected RBrack after collection index".into(), pos: lbrack.pos });
         }
-        Ok(Expr::Index { lhs: Box::new(expr), index: Box::new(index), pos: lbrack.pos.clone() })
+        Ok(Expr::Index { lhs: Box::new(expr), index: Box::new(index), pos: lbrack.pos })
     }
 
     fn expr_base(&mut self) -> Result<Expr, ParserError> {

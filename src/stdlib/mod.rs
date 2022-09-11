@@ -1,4 +1,4 @@
-use std::{rc::Rc, io::Write};
+use std::{rc::Rc, io::Write, cmp::Ordering};
 
 use num_traits::ToPrimitive;
 
@@ -53,7 +53,7 @@ fn fn_input(_: Vec<Value>) -> Result<Value, String> {
     let mut buffer = String::new();
     let stdin = std::io::stdin();
     stdin.read_line(&mut buffer).map_err(|e| e.to_string())?;
-    if buffer.ends_with("\n") {
+    if buffer.ends_with('\n') {
         buffer.pop();
     }
     Ok(Value::from(buffer))
@@ -84,14 +84,12 @@ fn fn_range(args: Vec<Value>) -> Result<Value, String> {
     let min = &args[0];
     let max = &args[1];
     match (min, max) {
-        (Value::Int(a), Value::Int(b)) => {
-            if a == b {
-                Ok(Value::from(vec![]))
-            } else if a < b {
-                Ok(Value::from((*a..*b).map(|x| Value::Int(x)).collect::<Vec<Value>>()))
-            } else {
-                Ok(Value::from(((*b+1)..(*a+1)).rev().map(|x| Value::Int(x)).collect::<Vec<Value>>()))
-            }
+        (Value::Int(a), Value::Int(b)) => match a.cmp(b) {
+            Ordering::Equal => Ok(Value::from(vec![])),
+            Ordering::Less =>
+                Ok(Value::from((*a..*b).map(Value::Int).collect::<Vec<Value>>())),
+            Ordering::Greater =>
+                Ok(Value::from(((*b+1)..(*a+1)).rev().map(Value::Int).collect::<Vec<Value>>()))
         },
         _ => Err("Both arguments to range must be integers".into())
     }

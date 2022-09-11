@@ -61,28 +61,27 @@ impl Value {
         }
     }
 
-    pub fn iter(&self) -> Result<Box<dyn Iterator<Item=Value> + '_>, ()> {
+    pub fn iter(&self) -> Result<Box<dyn Iterator<Item=Value> + '_>, String> {
         match self {
             Value::String(s) 
                 => Ok(Box::new(s.chars()
-                    .map(|c| Value::Char(c)))),
+                    .map(Value::Char))),
             Value::List(l) => Ok(Box::new(l.borrow().clone().into_iter())),
-            _ => Err(())
+            v => Err(format!("{:?} is not iterable", v))
         }
     }
 
     pub fn call(&self, args: Vec<Value>, pos: &Position) -> Result<Value, RuntimeError> {
         match self {
             Value::BuiltinFn(f) => {
-                if args.len() == f.arg_count {
-                    (f.func)(args).map_err(|e| RuntimeError { message: e, pos: pos.clone() })
-                } else if args.len() < f.arg_count {
-                    Err(RuntimeError { 
+                match args.len().cmp(&f.arg_count) {
+                    Ordering::Equal => 
+                        (f.func)(args).map_err(|e| RuntimeError { message: e, pos: pos.clone() }),
+                    Ordering::Less => Err(RuntimeError { 
                         message: format!("Not enough arguments for function: expected {}, got {}", f.arg_count, args.len()), 
                         pos: pos.clone() 
-                    })
-                } else {
-                    Err(RuntimeError { 
+                    }),
+                    Ordering::Greater => Err(RuntimeError { 
                         message: format!("Too many arguments for function: expected {}, got {}", f.arg_count, args.len()), 
                         pos: pos.clone() 
                     })
@@ -133,7 +132,7 @@ impl Value {
             Self::String(s) => match idx {
                 Value::Int(i) if *i >= 0 => s.chars().nth(*i as usize)
                     .ok_or_else(|| format!("String index {} out of bounds for length {}", i, s.chars().count()))
-                    .map(|c| Value::Char(c)),
+                    .map(Value::Char),
                 Value::Int(i) => Err(format!("String index {} cannot be negative", i)),
                 _ => Err(format!("Cannot index {:?} with {:?}", self, idx))
             },

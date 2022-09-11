@@ -49,7 +49,7 @@ impl fmt::Debug for Expr {
 
 impl Expr {
     pub fn is_lvalue(&self) -> bool {
-        return matches!(self, Expr::Ident{..} | Expr::Index{..})
+        matches!(self, Expr::Ident{..} | Expr::Index{..})
     }
 
     pub fn is_assignment(&self) -> bool {
