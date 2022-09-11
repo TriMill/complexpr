@@ -1,0 +1,39 @@
+let xscale = 100;
+let yscale = xscale/2;
+
+for y: range(0,yscale) {
+    for x: range(0,xscale) {
+        
+        let a = (1.0*x/xscale)*3 - 2;
+        let b = (1.0*y/yscale)*3 - 1.5;
+
+        let c = a + b*1i;
+        let z = c;
+
+        let i = 0;
+        while re(z)*re(z) + im(z)*im(z) <= 4 {
+            z = z*z + c;
+            if i > 70 {
+                break;
+            }
+            i += 1;
+        }
+        
+        if i > 70 {
+            print(" ");
+        } elif i > 20 {
+            print("#");
+        } elif i > 12 {
+            print("$");
+        } elif i > 8 {
+            print("&");
+        } elif i > 4 {
+            print("+");
+        } elif i > 2 {
+            print(";");
+        } else {
+            print("-");
+        }
+    }
+    println("");
+}

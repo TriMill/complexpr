@@ -269,6 +269,8 @@ impl Lexer {
             "while" => TokenType::While,
             "for" => TokenType::For,
             "let" => TokenType::Let,
+            "break" => TokenType::Break,
+            "continue" => TokenType::Continue,
             "return" => TokenType::Return,
             s => TokenType::Ident(Rc::from(s))
         };

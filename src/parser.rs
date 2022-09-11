@@ -51,9 +51,9 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Result<Stmt, ParserError> {
-        let next = self.peek();
+        let next_ty = &self.peek().ty;
 
-        match next.ty {
+        match next_ty {
             TokenType::Let => {
                 // let statement
                 self.next();
@@ -79,25 +79,38 @@ impl Parser {
                 self.next();
                 self.whilestmt()
             },
+            TokenType::Break => {
+                let tok = self.next();
+                self.terminate_stmt(Stmt::Break{ tok })
+            }
+            TokenType::Continue => {
+                let tok = self.next();
+                self.terminate_stmt(Stmt::Continue{ tok })
+            }
             _ => {
                 // fallback to an expression terminated with a semicolon
                 let expr = self.assignment()?;
-                if self.at_end() {
-                    if self.repl {
-                        return Ok(Stmt::Expr{expr})
-                    } else {
-                        self.err_on_eof()?;
-                    }
-                }
-
-                let next = self.next();
-
-                match next.ty {
-                    TokenType::Semicolon => Ok(Stmt::Expr{expr}),
-                    _ => Err(self.mk_error("Missing semicolon after statement"))
-                }
+                self.terminate_stmt(Stmt::Expr{ expr })
             }
         }
+    }
+
+    fn terminate_stmt(&mut self, stmt: Stmt) -> Result<Stmt, ParserError> {
+        if self.at_end() {
+            if self.repl {
+                return Ok(stmt)
+            } else {
+                self.err_on_eof()?;
+            }
+        }
+
+        let next = self.next();
+
+        match next.ty {
+            TokenType::Semicolon => Ok(stmt),
+            _ => Err(self.mk_error("Missing semicolon after statement"))
+        }
+
     }
 
     fn letstmt(&mut self) -> Result<Stmt, ParserError> {

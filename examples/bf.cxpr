@@ -27,12 +27,11 @@ while true {
         } elif op == '[' {
             if tape[ptr] == 0 {
                 let depth = 0;
-                let running = true;
-                while running {
+                while true {
                     i += 1;
                     if program[i] == ']' {
                         if depth == 0 {
-                            running = false;
+                            break;
                         }
                         depth -= 1;
                     } elif program[i] == '[' {
@@ -44,11 +43,11 @@ while true {
             if tape[ptr] != 0 {
                 let depth = 0;
                 let running = true;
-                while running {
+                while true {
                     i -= 1;
                     if program[i] == '[' {
                         if depth == 0 {
-                            running = false;
+                            break;
                         }
                         depth -= 1;
                     } elif program[i] == ']' {

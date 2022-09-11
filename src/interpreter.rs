@@ -20,7 +20,7 @@ pub fn interpret(src: &str, fname: Option<String>, env: Option<EnvRef>, repl: bo
         if let Stmt::Expr{expr} = stmt {
             result = eval_expr(&expr, environ.clone())?;
         } else {
-            eval_stmt(&stmt, environ.clone())?;
+            eval_stmt(&stmt, environ.clone()).map_err(|e| e.as_error())?;
             result = Value::Nil;
         }
     }

@@ -33,7 +33,9 @@ pub enum TokenType {
 
     LParen, RParen, LBrack, RBrack, LBrace, RBrace,
 
-    True, False, Nil, If, Elif, Else, For, While, Let, Return
+    True, False, Nil, 
+    If, Elif, Else, For, While, 
+    Let, Break, Continue, Return
 }
 
 impl TokenType {

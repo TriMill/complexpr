@@ -9,6 +9,8 @@ pub enum Stmt {
     If { if_clauses: Vec<(Expr, Stmt)>, else_clause: Option<Box<Stmt>> },
     For { var: Token, expr: Expr, stmt: Box<Stmt> },
     While { expr: Expr, stmt: Box<Stmt> },
+    Break { tok: Token },
+    Continue { tok: Token },
 }
 
 impl fmt::Debug for Stmt {

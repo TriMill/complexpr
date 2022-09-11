@@ -1,6 +1,6 @@
 use std::{collections::HashMap, rc::Rc, cell::RefCell};
 
-use crate::{value::{Value, Complex}, expr::{Stmt, Expr}, token::{TokenType, Token, OpType}, RuntimeError};
+use crate::{value::{Value, Complex}, expr::{Stmt, Expr}, token::{TokenType, Token, OpType}, RuntimeError, Position};
 
 #[derive(Debug)]
 pub struct Environment {
@@ -48,6 +48,27 @@ impl Environment {
     }
 }
 
+pub enum Unwind {
+    Continue{pos: Position}, Break{pos: Position}, Return{pos: Position, value: Value}, Error(RuntimeError)
+}
+
+impl Unwind {
+    pub fn as_error(self) -> RuntimeError {
+        match self {
+            Self::Error(e) => e,
+            Self::Continue { pos } => RuntimeError { message: "continue statement outside of loop".into(), pos },
+            Self::Break { pos } => RuntimeError { message: "break statement outside of loop".into(), pos },
+            Self::Return { pos, .. } => RuntimeError { message: "return statement outside of function".into(), pos },
+        }
+    }
+}
+
+impl From<RuntimeError> for Unwind {
+    fn from(e: RuntimeError) -> Self {
+        Self::Error(e)
+    }
+}
+
 fn unwrap_ident_token<'a>(tok: &'a Token) -> &'a Rc<str> {
     if let Token { ty: TokenType::Ident(s),.. } = tok {
         s
@@ -56,7 +77,7 @@ fn unwrap_ident_token<'a>(tok: &'a Token) -> &'a Rc<str> {
     }
 }
 
-pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), RuntimeError> {
+pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), Unwind> {
     match stmt {
         Stmt::Expr{ expr } 
             => drop(eval_expr(expr, env)),
@@ -91,10 +112,15 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), RuntimeError> {
                 for v in i {
                     let env = env.clone();
                     env.borrow_mut().set(name.clone(), v).expect("unreachable");
-                    eval_stmt(&stmt, env)?;
+                    match eval_stmt(&stmt, env) {
+                        Ok(_) => (),
+                        Err(Unwind::Break{..}) => break,
+                        Err(Unwind::Continue{..}) => continue,
+                        Err(e) => return Err(e)
+                    }
                 }
             } else {
-                return Err(RuntimeError { message: "Cannot iterate this type".into(), pos: var.pos.clone() })
+                return Err(RuntimeError { message: "Cannot iterate this type".into(), pos: var.pos.clone() }.into())
             };
         },
         Stmt::While { expr, stmt } => {
@@ -103,9 +129,16 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), RuntimeError> {
                 if !cond.truthy() {
                     break
                 }
-                eval_stmt(&stmt, env.clone())?;
+                match eval_stmt(&stmt, env.clone()) {
+                    Ok(_) => (),
+                    Err(Unwind::Break{..}) => break,
+                    Err(Unwind::Continue{..}) => continue,
+                    Err(e) => return Err(e)
+                }
             }
         },
+        Stmt::Break { tok } => return Err(Unwind::Break { pos: tok.pos.clone() }),
+        Stmt::Continue { tok } => return Err(Unwind::Continue { pos: tok.pos.clone() }),
     }
     Ok(())
 }

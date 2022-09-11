@@ -1,5 +1,7 @@
 use std::{rc::Rc, io::Write};
 
+use num_traits::ToPrimitive;
+
 use crate::{value::{Value, BuiltinFn}, eval::Environment};
 
 pub fn load(env: &mut Environment) {
@@ -22,6 +24,10 @@ pub fn load(env: &mut Environment) {
     env.declare(name.clone(), Value::BuiltinFn(BuiltinFn { func: fn_range, arg_count: 2, name }));
     name = Rc::from("len"); 
     env.declare(name.clone(), Value::BuiltinFn(BuiltinFn { func: fn_len, arg_count: 1, name }));
+    name = Rc::from("re"); 
+    env.declare(name.clone(), Value::BuiltinFn(BuiltinFn { func: fn_re, arg_count: 1, name }));
+    name = Rc::from("im"); 
+    env.declare(name.clone(), Value::BuiltinFn(BuiltinFn { func: fn_im, arg_count: 1, name }));
 }
 
 fn fn_str(args: Vec<Value>) -> Result<Value, String> {
@@ -97,5 +103,24 @@ fn fn_len(args: Vec<Value>) -> Result<Value, String> {
         Value::List(l) => Ok(Value::Int(l.borrow().len() as i64)),
         Value::Map(m) => Ok(Value::Int(m.len() as i64)),
         v => Err(format!("{:?} has no length", v))
+    }
+}
+
+fn fn_re(args: Vec<Value>) -> Result<Value, String> {
+    match &args[0] {
+        Value::Int(x) => Ok(Value::Float(*x as f64)),
+        Value::Float(x) => Ok(Value::Float(*x)),
+        Value::Rational(x) => Ok(Value::Float(x.to_f64().unwrap())),
+        Value::Complex(x) => Ok(Value::Float(x.re)),
+        x => Err(format!("Cannot get real part of {:?}", x))
+    }
+}
+
+fn fn_im(args: Vec<Value>) -> Result<Value, String> {
+    match &args[0] {
+        Value::Int(_) | Value::Float(_) | Value::Rational(_) 
+            => Ok(Value::Float(0.0)),
+        Value::Complex(x) => Ok(Value::Float(x.im)),
+        x => Err(format!("Cannot get real part of {:?}", x))
     }
 }
