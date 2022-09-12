@@ -25,9 +25,39 @@ pub struct ParserError {
 }
 
 #[derive(Debug)]
+pub struct Stackframe {
+    pub pos: Position,
+    pub fn_name: Option<Rc<str>>,
+}
+
+#[derive(Debug)]
 pub struct RuntimeError {
     pub message: String,
-    pub pos: Position
+    pub stacktrace: Vec<Stackframe>,
+    pub last_pos: Option<Position>,
+}
+
+impl RuntimeError {
+    pub fn new<S>(message: S, pos: Position) -> Self
+    where S: Into<String> {
+        Self { 
+            message: message.into(), 
+            stacktrace: vec![],
+            last_pos: Some(pos)
+        }
+    }
+
+    pub fn exit_fn(mut self, fn_name: Option<Rc<str>>, pos: Position) -> Self {
+        self.stacktrace.push(Stackframe { pos: self.last_pos.unwrap(), fn_name });
+        self.last_pos = Some(pos);
+        self
+    }
+
+    pub fn finish(mut self, ctx_name: Option<Rc<str>>) -> Self {
+        self.stacktrace.push(Stackframe { pos: self.last_pos.unwrap(), fn_name: ctx_name });
+        self.last_pos = None;
+        self
+    }
 }
 
 impl fmt::Display for ParserError {
@@ -43,12 +73,16 @@ impl fmt::Display for ParserError {
 
 impl fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Error: {}\n    In {} at {},{}", 
-            self.message, 
-            self.pos.file.as_ref().map(|o| o.as_ref()).unwrap_or("<unknown>"), 
-            self.pos.line, 
-            self.pos.col
-        )
+        writeln!(f, "Error: {}", self.message)?;
+        for frame in &self.stacktrace {
+            writeln!(f, "    In {} at {}:{}:{}", 
+                frame.fn_name.as_ref().map(|o| o.as_ref()).unwrap_or("<anonymous fn>"),
+                frame.pos.file.as_ref().map(|o| o.as_ref()).unwrap_or("<unknown>"),
+                frame.pos.line,
+                frame.pos.col
+            )?;
+        }
+        Ok(())
     }
 }
 

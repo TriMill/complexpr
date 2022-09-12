@@ -1,6 +1,6 @@
 use std::{collections::HashMap, rc::Rc, cell::RefCell};
 
-use crate::{value::{Value, Complex}, expr::{Stmt, Expr}, token::{TokenType, Token, OpType}, RuntimeError, Position};
+use crate::{value::{Value, Complex, Func}, expr::{Stmt, Expr}, token::{TokenType, Token, OpType}, RuntimeError, Position};
 
 #[derive(Debug)]
 pub struct Environment {
@@ -54,17 +54,21 @@ impl Default for Environment {
     }
 }
 
+#[derive(Debug)]
 pub enum Unwind {
-    Continue{pos: Position}, Break{pos: Position}, Return{pos: Position, value: Value}, Error(RuntimeError)
+    Continue{pos: Position}, 
+    Break{pos: Position}, 
+    Return{pos: Position, value: Value}, 
+    Error(RuntimeError)
 }
 
 impl Unwind {
     pub fn as_error(self) -> RuntimeError {
         match self {
             Self::Error(e) => e,
-            Self::Continue { pos } => RuntimeError { message: "continue statement outside of loop".into(), pos },
-            Self::Break { pos } => RuntimeError { message: "break statement outside of loop".into(), pos },
-            Self::Return { pos, .. } => RuntimeError { message: "return statement outside of function".into(), pos },
+            Self::Continue { pos } => RuntimeError::new("continue statement outside of loop", pos),
+            Self::Break { pos } => RuntimeError::new("break statement outside of loop", pos),
+            Self::Return { pos, .. } => RuntimeError::new("return statement outside of function", pos),
         }
     }
 }
@@ -86,7 +90,7 @@ fn unwrap_ident_token(tok: &Token) -> &Rc<str> {
 pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), Unwind> {
     match stmt {
         Stmt::Expr{ expr } 
-            => drop(eval_expr(expr, env)),
+            => drop(eval_expr(expr, env)?),
         Stmt::Let { lhs, rhs: None } 
             => env.borrow_mut().declare(unwrap_ident_token(lhs).clone(), Value::Nil),
         Stmt::Let { lhs, rhs: Some(rhs) } => {
@@ -95,8 +99,8 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), Unwind> {
         },
         Stmt::Block { stmts } => {
             let block_env = Environment::extend(env).wrap();
-            for stmt in stmts { 
-                eval_stmt(stmt, block_env.clone())? 
+            for stmt in stmts {
+                eval_stmt(stmt, block_env.clone())?;
             }
         },
         Stmt::If { if_clauses, else_clause } => {
@@ -116,7 +120,7 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), Unwind> {
             env.borrow_mut().declare(name.clone(), Value::Nil);
             let iterator = iter.iter();
             if let Err(e) = iterator {
-                return Err(RuntimeError { message: e, pos: var.pos.clone() }.into())
+                return Err(RuntimeError::new(e, var.pos.clone()).into())
             }
             if let Ok(i) = iterator {
                 for v in i {
@@ -145,8 +149,22 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), Unwind> {
                 }
             }
         },
+        Stmt::Fn { name, args, body } => {
+            let name = name.ty.clone().as_ident().unwrap();
+            let func = Func { 
+                name: Some(name.clone()),
+                args: args.into_iter().map(|a| a.ty.clone().as_ident().unwrap()).collect(),
+                env: env.clone(),
+                func: body.as_ref().clone()
+            };
+            env.borrow_mut().declare(name, Value::Func(func));
+        },
         Stmt::Break { tok } => return Err(Unwind::Break { pos: tok.pos.clone() }),
         Stmt::Continue { tok } => return Err(Unwind::Continue { pos: tok.pos.clone() }),
+        Stmt::Return { tok, expr } => {
+            let value = eval_expr(expr, env)?;
+            return Err(Unwind::Return { pos: tok.pos.clone(), value })
+        }
     }
     Ok(())
 }
@@ -186,7 +204,16 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
         Expr::Index { lhs, index, pos } => {
             let l = eval_expr(lhs, env.clone())?;
             let idx = eval_expr(index, env)?;
-            l.index(&idx).map_err(|e| RuntimeError { message: e, pos: pos.clone() })
+            l.index(&idx).map_err(|e| RuntimeError::new(e, pos.clone()))
+        },
+        Expr::Fn { args, body } => {
+            let func = Func { 
+                name: None,
+                args: args.into_iter().map(|a| a.ty.clone().as_ident().unwrap()).collect(),
+                env: env.clone(),
+                func: body.as_ref().clone()
+            };
+            Ok(Value::Func(func))
         },
     }
 }
@@ -209,7 +236,7 @@ pub fn eval_ident(token: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
     if let Token { ty: TokenType::Ident(name), ..} = token {
         env.borrow_mut()
             .get(name)
-            .ok_or_else(|| RuntimeError { message: "Variable not defined in scope".into(), pos: token.pos.clone() })
+            .ok_or_else(|| RuntimeError::new("Variable not defined in scope", token.pos.clone()))
     } else { 
         unreachable!() 
     }
@@ -223,13 +250,13 @@ pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Resul
             let r = eval_expr(rhs, env.clone())?;
             env.borrow_mut()
                 .set(name.clone(), r)
-                .map_err(|_| RuntimeError { message: "Variable not declared before assignment".into(), pos: op.pos.clone() })?;
+                .map_err(|_| RuntimeError::new("Variable not declared before assignment", op.pos.clone()))?;
             Ok(Value::Nil)
         } else {
             // compound assignment
             let prev_value = env.borrow_mut()
                 .get(name)
-                .ok_or_else(|| RuntimeError { message: "Variable not defined in scope".into(), pos: op.pos.clone()})?;
+                .ok_or_else(|| RuntimeError::new("Variable not defined in scope", op.pos.clone()))?;
             let r = eval_expr(rhs, env.clone())?;
 
             let result = match op.ty {
@@ -239,7 +266,7 @@ pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Resul
                 TokenType::SlashEqual => &prev_value / &r,
                 TokenType::PercentEqual => &prev_value % &r,
                 _ => todo!() // TODO more operations
-            }.map_err(|e| RuntimeError { message: e, pos: op.pos.clone() })?;
+            }.map_err(|e| RuntimeError::new(e, op.pos.clone()))?;
 
             env.borrow_mut()
                 .set(name.clone(), result.clone()).expect("unreachable");
@@ -250,10 +277,10 @@ pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Resul
         let idx = eval_expr(index, env.clone())?;
         if op.ty == TokenType::Equal {
             let r = eval_expr(rhs, env)?;
-            l.assign_index(&idx, r.clone()).map_err(|e| RuntimeError { message: e, pos: pos.clone() })?;
+            l.assign_index(&idx, r.clone()).map_err(|e| RuntimeError::new(e, pos.clone()))?;
             Ok(r)
         } else {
-            let prev_value = l.index(&idx).map_err(|e| RuntimeError { message: e, pos: pos.clone() })?;
+            let prev_value = l.index(&idx).map_err(|e| RuntimeError::new(e, pos.clone()))?;
             let r = eval_expr(rhs, env)?;
             let result = match op.ty {
                 TokenType::PlusEqual => &prev_value + &r,
@@ -262,8 +289,8 @@ pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Resul
                 TokenType::SlashEqual => &prev_value / &r,
                 TokenType::PercentEqual => &prev_value % &r,
                 _ => todo!() // TODO more operations
-            }.map_err(|e| RuntimeError { message: e, pos: op.pos.clone() })?;
-            l.assign_index(&idx, result.clone()).map_err(|e| RuntimeError { message: e, pos: pos.clone() })?;
+            }.map_err(|e| RuntimeError::new(e, op.pos.clone()))?;
+            l.assign_index(&idx, result.clone()).map_err(|e| RuntimeError::new(e, pos.clone()))?;
             Ok(result)
         }
     } else {
@@ -281,7 +308,7 @@ pub fn eval_binary(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Va
         TokenType::Slash => &l / &r,
         TokenType::Percent => &l % &r,
         _ => todo!() // TODO other operations
-    }.map_err(|e| RuntimeError { message: e, pos: op.pos.clone() })
+    }.map_err(|e| RuntimeError::new(e, op.pos.clone()))
 }
 
 pub fn eval_boolean(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
@@ -304,10 +331,10 @@ pub fn eval_boolean(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<V
 pub fn eval_comp(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
     let l = eval_expr(lhs, env.clone())?;
     let r = eval_expr(rhs, env)?;
-    let mk_err = || RuntimeError {
-        message: format!("Cannot compare {:?} with {:?}", l, r),
-        pos: op.pos.clone()
-    };
+    let mk_err = || RuntimeError::new(
+        format!("Cannot compare {:?} with {:?}", l, r),
+        op.pos.clone()
+    );
     match op.ty {
         TokenType::DoubleEqual => Ok(Value::Bool(l == r)),
         TokenType::BangEqual => Ok(Value::Bool(l != r)),
@@ -336,5 +363,5 @@ pub fn eval_unary(arg: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeE
         TokenType::Minus => -a,
         TokenType::Bang => Ok(Value::Bool(!a.truthy())),
         _ => todo!(),
-    }.map_err(|e| RuntimeError { message: e, pos: op.pos.clone() })
+    }.map_err(|e| RuntimeError::new(e, op.pos.clone()))
 }

@@ -82,11 +82,20 @@ impl Parser {
             TokenType::Break => {
                 let tok = self.next();
                 self.terminate_stmt(Stmt::Break{ tok })
-            }
+            },
             TokenType::Continue => {
                 let tok = self.next();
                 self.terminate_stmt(Stmt::Continue{ tok })
-            }
+            },
+            TokenType::Return => {
+                let tok = self.next();
+                let expr = self.assignment()?;
+                self.terminate_stmt(Stmt::Return{ tok, expr })
+            },
+            TokenType::Fn => {
+                let tok = self.next();
+                self.fndef()
+            },
             _ => {
                 // fallback to an expression terminated with a semicolon
                 let expr = self.assignment()?;
@@ -199,6 +208,36 @@ impl Parser {
         self.err_on_eof()?;
         let stmt = self.statement()?;
         Ok(Stmt::While{ expr, stmt: Box::new(stmt) })
+    }
+
+    fn fndef(&mut self) -> Result<Stmt, ParserError> {
+        self.err_on_eof()?;
+        let name = self.next();
+        let name = if let TokenType::Ident(_) = name.ty {
+            name
+        } else {
+            return Err(ParserError { message: "Expected identifer in function declaration".into(), pos: name.pos })
+        };
+        self.err_on_eof()?;
+        let next = self.next();
+        if let TokenType::LParen = next.ty {} else {
+            return Err(ParserError { message: "Expected left parenthesis to start arguments list".into(), pos: next.pos })
+        }
+        let args = self.commalist(TokenType::RParen, Self::ident)?.into_iter().map(|e| {
+            if let Expr::Ident { value: i } = e { i }
+            else { panic!() }
+        }).collect();
+        self.err_on_eof()?;
+        let body = self.statement()?;
+        Ok(Stmt::Fn { name, args, body: Box::new(body) })
+    }
+
+    fn ident(&mut self) -> Result<Expr, ParserError> {
+        let next = self.next();
+        match next.ty {
+            TokenType::Ident(_) => Ok(Expr::Ident{ value: next }),
+            _ => Err(ParserError { message: "Expected identifier".into(), pos: next.pos })
+        }
     }
 
     fn block(&mut self) -> Result<Stmt, ParserError> {
@@ -352,6 +391,19 @@ impl Parser {
         } else if next.ty == TokenType::LBrack {
             let items = self.commalist(TokenType::RBrack, Self::assignment)?;
             Ok(Expr::List { items })
+        } else if next.ty == TokenType::Fn {
+            self.err_on_eof()?;
+            let next = self.next();
+            if let TokenType::LParen = next.ty {} else {
+                return Err(ParserError { message: "Expected left parenthesis to start arguments list".into(), pos: next.pos })
+            }
+            let args = self.commalist(TokenType::RParen, Self::ident)?.into_iter().map(|e| {
+                if let Expr::Ident { value: i } = e { i }
+                else { panic!() }
+            }).collect();
+            self.err_on_eof()?;
+            let body = self.statement()?;
+            Ok(Expr::Fn { args, body: Box::new(body) })
         } else {
             Err(self.mk_error(format!("Unexpected token: {:?}", next.ty)))
         }

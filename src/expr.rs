@@ -2,6 +2,7 @@ use std::fmt;
 
 use crate::{token::{Token, OpType}, Position};
 
+#[derive(Clone)]
 pub enum Stmt {
     Expr { expr: Expr },
     Let { lhs: Token, rhs: Option<Expr> },
@@ -11,6 +12,8 @@ pub enum Stmt {
     While { expr: Expr, stmt: Box<Stmt> },
     Break { tok: Token },
     Continue { tok: Token },
+    Return { tok: Token, expr: Expr },
+    Fn { name: Token, args: Vec<Token>, body: Box<Stmt> },
 }
 
 impl fmt::Debug for Stmt {
@@ -18,11 +21,13 @@ impl fmt::Debug for Stmt {
         match self {
             Self::Expr { expr } => write!(f, "{:?}", expr),
             Self::Let { lhs, rhs } => write!(f, "(let {:?} = {:?})", lhs, rhs),
+            Self::Block { stmts } => write!(f, "(block {:?})", stmts),
             _ => todo!()
         }
     }
 }
 
+#[derive(Clone)]
 pub enum Expr {
     Binary { lhs: Box<Expr>, rhs: Box<Expr>, op: Token },
     Unary { arg: Box<Expr>, op: Token },
@@ -31,6 +36,7 @@ pub enum Expr {
     List { items: Vec<Expr> },
     FuncCall { func: Box<Expr>, args: Vec<Expr>, pos: Position },
     Index { lhs: Box<Expr>, index: Box<Expr>, pos: Position },
+    Fn { args: Vec<Token>, body: Box<Stmt> },
 }
 
 impl fmt::Debug for Expr {
@@ -43,6 +49,7 @@ impl fmt::Debug for Expr {
             Self::List { items } => write!(f, "(list {:?})", items),
             Self::FuncCall { func, args, .. } => write!(f, "(call {:?} {:?})", func, args),
             Self::Index { lhs, index, .. } => write!(f, "(index {:?} {:?})", lhs, index),
+            Self::Fn { args, body } => write!(f, "(fn {:?} {:?})", args, body)
         }
     }
 }

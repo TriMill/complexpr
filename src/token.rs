@@ -35,7 +35,7 @@ pub enum TokenType {
 
     True, False, Nil, 
     If, Elif, Else, For, While, 
-    Let, Break, Continue, Return
+    Fn, Let, Break, Continue, Return
 }
 
 impl TokenType {
@@ -60,6 +60,13 @@ impl TokenType {
 
             Self::DoubleAmper | Self::DoublePipe => Some(OpType::Boolean),
 
+            _ => None
+        }
+    }
+
+    pub fn as_ident(self) -> Option<Rc<str>> {
+        match self {
+            Self::Ident(s) => Some(s),
             _ => None
         }
     }

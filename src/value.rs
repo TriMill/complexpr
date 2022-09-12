@@ -2,22 +2,30 @@ use std::{rc::Rc, collections::HashMap, ops::*, fmt, cmp::Ordering, cell::RefCel
 
 use num_traits::{Zero, ToPrimitive};
 
-use crate::{RuntimeError, Position};
+use crate::{RuntimeError, Position, eval::{EnvRef, eval_stmt, Environment, Unwind}, expr::Stmt};
 
 pub type Rational = num_rational::Ratio<i64>;
 pub type Complex = num_complex::Complex64;
 
 #[derive(Clone)]
-pub struct BuiltinFn {
+pub struct BuiltinFunc {
     pub name: Rc<str>,
     pub func: fn(Vec<Value>) -> Result<Value, String>,
     pub arg_count: usize
 }
 
-impl fmt::Debug for BuiltinFn {
+impl fmt::Debug for BuiltinFunc {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BuiltinFn").field("name", &self.name).field("arg_count", &self.arg_count).finish()
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct Func {
+    pub name: Option<Rc<str>>,
+    pub args: Vec<Rc<str>>,
+    pub env: EnvRef,
+    pub func: Stmt
 }
 
 #[derive(Clone, Debug)]
@@ -42,7 +50,8 @@ pub enum Value {
     Char(char),
     String(Rc<str>), 
     List(Rc<RefCell<Vec<Value>>>), Map(Rc<HashMap<Value,Value>>),
-    BuiltinFn(BuiltinFn),
+    BuiltinFunc(BuiltinFunc),
+    Func(Func),
     Data(Data),
 }
 
@@ -73,21 +82,44 @@ impl Value {
 
     pub fn call(&self, args: Vec<Value>, pos: &Position) -> Result<Value, RuntimeError> {
         match self {
-            Value::BuiltinFn(f) => {
+            Value::BuiltinFunc(f) => {
                 match args.len().cmp(&f.arg_count) {
                     Ordering::Equal => 
-                        (f.func)(args).map_err(|e| RuntimeError { message: e, pos: pos.clone() }),
-                    Ordering::Less => Err(RuntimeError { 
-                        message: format!("Not enough arguments for function: expected {}, got {}", f.arg_count, args.len()), 
-                        pos: pos.clone() 
-                    }),
-                    Ordering::Greater => Err(RuntimeError { 
-                        message: format!("Too many arguments for function: expected {}, got {}", f.arg_count, args.len()), 
-                        pos: pos.clone() 
-                    })
+                        (f.func)(args).map_err(|e| RuntimeError::new(e, pos.clone())),
+                    Ordering::Less => Err(RuntimeError::new(
+                        format!("Not enough arguments for function: expected {}, got {}", f.arg_count, args.len()), 
+                        pos.clone() 
+                    )),
+                    Ordering::Greater => Err(RuntimeError::new(
+                        format!("Too many arguments for function: expected {}, got {}", f.arg_count, args.len()), 
+                        pos.clone() 
+                    ))
                 }
-            }
-            _ => Err(RuntimeError { message: "Cannot call".into(), pos: pos.clone() })
+            },
+            Value::Func(f) => {
+                match args.len().cmp(&f.args.len()) {
+                    Ordering::Equal => {
+                        let mut env = Environment::extend(f.env.clone());
+                        for (k, v) in f.args.iter().zip(args.iter()) {
+                            env.declare(k.clone(), v.clone());
+                        }
+                        match eval_stmt(&f.func, env.wrap()) {
+                            Ok(()) => Ok(Value::Nil),
+                            Err(Unwind::Return{ value, .. }) => Ok(value),
+                            Err(e) => Err(e.as_error().exit_fn(f.name.clone(), pos.clone()))
+                        }
+                    },
+                    Ordering::Less => Err(RuntimeError::new(
+                        format!("Not enough arguments for function: expected {}, got {}", f.args.len(), args.len()), 
+                        pos.clone() 
+                    )),
+                    Ordering::Greater => Err(RuntimeError::new(
+                        format!("Too many arguments for function: expected {}, got {}", f.args.len(), args.len()), 
+                        pos.clone() 
+                    ))
+                }
+            },
+            _ => Err(RuntimeError::new("Cannot call", pos.clone()))
         }
     }
 
@@ -104,7 +136,11 @@ impl Value {
             Self::List(l) => Rc::from(format!("{:?}", l)), // TODO fix
             Self::Map(m) => Rc::from(format!("{:?}", m)), // TODO fix
             Self::Type(_) => todo!(),
-            Self::BuiltinFn(bf) => Rc::from(format!("<builtin fn {} at {:?}>", bf.name, bf.func as *const ())),
+            Self::BuiltinFunc(bf) => Rc::from(format!("<builtin fn {} at {:?}>", bf.name, bf.func as *const ())),
+            Self::Func(f) => match &f.name {
+                Some(name) => Rc::from(format!("<fn {}>", name)),
+                None => Rc::from("<anonymous fn>"),
+            },
             Self::Data(_) => todo!(),
         }
     }
@@ -122,7 +158,11 @@ impl Value {
             Self::List(l) => Rc::from(format!("{:?}", l.borrow())), // TODO fix
             Self::Map(m) => Rc::from(format!("{:?}", m)), // TODO fix
             Self::Type(_) => todo!(),
-            Self::BuiltinFn(bf) => Rc::from(format!("<builtin fn {} at {:?}>", bf.name, bf.func as *const ())),
+            Self::BuiltinFunc(bf) => Rc::from(format!("<builtin fn {} at {:?}>", bf.name, bf.func as *const ())),
+            Self::Func(f) => match &f.name {
+                Some(name) => Rc::from(format!("<fn {}>", name)),
+                None => Rc::from("<anonymous fn>"),
+            },
             Self::Data(_) => todo!(),
         }
     }
@@ -195,7 +235,7 @@ impl PartialEq for Value {
             (Self::String(a), Self::String(b)) => a == b,
             (Self::List(a), Self::List(b)) => a == b,
             (Self::Map(_), Self::Map(_)) => todo!("Can't test maps for equality yet"),
-            (Self::BuiltinFn(a), Self::BuiltinFn(b)) 
+            (Self::BuiltinFunc(a), Self::BuiltinFunc(b)) 
                 => (a.func as *const ()) == (b.func as *const ()) && a.arg_count == b.arg_count,
             (Self::Data(_), Self::Data(_)) => todo!("Can't compare data yet"),
             _ => false
