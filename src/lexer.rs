@@ -43,6 +43,14 @@ impl Lexer {
         self.current >= self.code.len()
     }
 
+    fn err_on_eof(&self, msg: &str) -> Result<(), ParserError> {
+        if self.at_end() {
+            Err(self.mk_error(msg))
+        } else {
+            Ok(())
+        }
+    }
+
     fn peek(&self) -> char {
         self.code[self.current]
     }
@@ -79,6 +87,53 @@ impl Lexer {
             self.col += 1;
         }
         self.current += 1;
+    }
+
+    fn parse_escape(&mut self, eof_msg: &str) -> Result<Option<char>, ParserError> {
+        self.err_on_eof(eof_msg)?;
+        Ok(Some(match self.peek() {
+            '0' => '\0',
+            'n' => '\n',
+            't' => '\t',
+            'r' => '\r',
+            'e' => '\x1b',
+            '\\' => '\\',
+            '"' => '"',
+            '\'' => '\'',
+            '\n' => { return Ok(None) },
+            'x' => {
+                self.advance(false);
+                self.err_on_eof(eof_msg)?;
+                let c1 = self.peek();
+                self.advance(c1 == '\n');
+                self.err_on_eof(eof_msg)?;
+                let c2 = self.peek();
+                let code = format!("{}{}", c1, c2);
+                let code = u32::from_str_radix(&code, 16).map_err(|_| self.mk_error("Invalid hex code in escape"))?;
+                char::from_u32(code).unwrap()
+            },
+            'u' => {
+                self.advance(false);
+                self.err_on_eof(eof_msg)?;
+                if self.peek() != '{' {
+                    return Err(self.mk_error("Expected { to begin unicode escape"))
+                }
+                self.advance(false);
+                self.err_on_eof(eof_msg)?;
+                let mut esc_str = String::new();
+                while self.peek().is_ascii_hexdigit() {
+                    esc_str.push(self.peek());
+                    self.advance(false);
+                    self.err_on_eof(eof_msg)?;
+                }
+                if self.peek() != '}' {
+                    return Err(self.mk_error("Expected } to terminate unicode escape"))
+                }
+                let code = u32::from_str_radix(&esc_str, 16).map_err(|_| self.mk_error("Invalid hex code in escape"))?;
+                char::from_u32(code).ok_or_else(|| self.mk_error("Invalid unicode character"))?
+            },
+            c => return Err(self.mk_error(format!("Unknown escape code \\{}", c)))
+        }))
     }
 
     pub fn lex(&mut self) -> Result<(), ParserError> {
@@ -172,39 +227,34 @@ impl Lexer {
     }
 
     fn char(&mut self) -> Result<(), ParserError> {
-        if self.at_end() { return Err(self.mk_error("Unexpected EOF in character literal")) }
-        let mut c = self.next();
+        const EOF_MSG: &str = "Unexpected EOF in character literal";
+        self.err_on_eof(EOF_MSG)?;
+        let mut c = self.peek();
         if c == '\'' {
             return Err(self.mk_error("Empty character literal"))
         } else if c == '\\' {
-            if self.at_end() { return Err(self.mk_error("Unexpected EOF in character literal")) }
-            // TODO Escapes
+            self.advance(self.peek() == '\n');
+            if let Some(nc) = self.parse_escape(EOF_MSG)? {
+                c = nc
+            } else {
+                return Err(self.mk_error("Character literal cannot contain escaped newline"));
+            }
         }
-        if self.at_end() { return Err(self.mk_error("Unexpected EOF in character literal")) }
+        self.err_on_eof(EOF_MSG)?;
+        self.advance(self.peek() == '\n');
         self.expect(&['\'']).ok_or_else(|| self.mk_error("Expected ' to terminate character literal"))?;
         self.add_token(TokenType::Char(c), self.collect_literal());
         Ok(())
     }
 
     fn string(&mut self) -> Result<(), ParserError> {
+        const EOF_MSG: &str = "Unexpected EOF in string literal";
         let mut s = String::new();
         while !self.at_end() && self.peek() != '"' {
             if self.peek() == '\\' {
                 self.advance(false);
-                if self.at_end() { 
-                    return Err(self.mk_error("Unexpected EOF in string literal")) 
-                }
-                // TODO more escape codes! \xHH, \u{HH..} or maybe \uhhhh \Uhhhhhhhh
-                match self.peek() {
-                    '0' => s.push('\0'),
-                    'n' => s.push('\n'),
-                    't' => s.push('\t'),
-                    'r' => s.push('\r'),
-                    'e' => s.push('\x1b'),
-                    '\\' => s.push('\\'),
-                    '"' => s.push('"'),
-                    '\n' => (),
-                    c => return Err(self.mk_error(format!("Unknown escape code \\{}", c)))
+                if let Some(c) = self.parse_escape(EOF_MSG)? {
+                    s.push(c);
                 }
                 self.advance(self.peek() == '\n')
             } else {
@@ -212,9 +262,7 @@ impl Lexer {
                 self.advance(self.peek() == '\n');
             }
         }
-        if self.at_end() {
-            return Err(self.mk_error("Unexpected EOF in string literal"))
-        }
+        self.err_on_eof(EOF_MSG)?;
         self.advance(false);
         self.add_token(TokenType::String(Rc::from(s)), self.collect_literal());
         Ok(())

@@ -114,16 +114,17 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), Unwind> {
                 return eval_stmt(ec, env)
             }
         },
-        Stmt::For { var, expr, stmt } => {
+        Stmt::For { var, expr, stmt, iter_pos } => {
             let name = unwrap_ident_token(var);
             let iter = eval_expr(expr, env.clone())?;
             env.borrow_mut().declare(name.clone(), Value::Nil);
-            let iterator = iter.iter();
+            let iterator = iter.iter(iter_pos);
             if let Err(e) = iterator {
                 return Err(RuntimeError::new(e, var.pos.clone()).into())
             }
             if let Ok(i) = iterator {
                 for v in i {
+                    let v = v?;
                     let env = env.clone();
                     env.borrow_mut().set(name.clone(), v).expect("unreachable");
                     match eval_stmt(stmt, env) {
@@ -159,11 +160,11 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), Unwind> {
             };
             env.borrow_mut().declare(name, Value::Func(func));
         },
-        Stmt::Break { tok } => return Err(Unwind::Break { pos: tok.pos.clone() }),
-        Stmt::Continue { tok } => return Err(Unwind::Continue { pos: tok.pos.clone() }),
-        Stmt::Return { tok, expr } => {
+        Stmt::Break { pos } => return Err(Unwind::Break { pos: pos.clone() }),
+        Stmt::Continue { pos } => return Err(Unwind::Continue { pos: pos.clone() }),
+        Stmt::Return { pos, expr } => {
             let value = eval_expr(expr, env)?;
-            return Err(Unwind::Return { pos: tok.pos.clone(), value })
+            return Err(Unwind::Return { pos: pos.clone(), value })
         }
     }
     Ok(())

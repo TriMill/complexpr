@@ -81,19 +81,19 @@ impl Parser {
             },
             TokenType::Break => {
                 let tok = self.next();
-                self.terminate_stmt(Stmt::Break{ tok })
+                self.terminate_stmt(Stmt::Break{ pos: tok.pos })
             },
             TokenType::Continue => {
                 let tok = self.next();
-                self.terminate_stmt(Stmt::Continue{ tok })
+                self.terminate_stmt(Stmt::Continue{ pos: tok.pos })
             },
             TokenType::Return => {
                 let tok = self.next();
                 let expr = self.assignment()?;
-                self.terminate_stmt(Stmt::Return{ tok, expr })
+                self.terminate_stmt(Stmt::Return{ pos: tok.pos, expr })
             },
             TokenType::Fn => {
-                let tok = self.next();
+                self.next();
                 self.fndef()
             },
             _ => {
@@ -188,15 +188,15 @@ impl Parser {
         let var = self.next();
         if let TokenType::Ident(_) = &var.ty {
             self.err_on_eof()?;
-            let x = self.next();
-            if x.ty != TokenType::Colon {
+            let colon = self.next();
+            if colon.ty != TokenType::Colon {
                 return Err(self.mk_error("Expected colon"))
             }
             self.err_on_eof()?;
             let expr = self.assignment()?;
             self.err_on_eof()?;
             let stmt = self.statement()?;
-            Ok(Stmt::For{ var, expr, stmt: Box::new(stmt) })
+            Ok(Stmt::For{ var, expr, stmt: Box::new(stmt), iter_pos: colon.pos })
         } else {
             Err(self.mk_error("Expected identifier after for"))
         }

@@ -1,0 +1,36 @@
+# this function returns an iterator when called
+fn count_by(delta, limit) {
+    let counter = 0;
+    return fn() {
+        if counter >= limit {
+            return nil;
+        }
+        let prev_value = counter;
+        counter += delta;
+        return prev_value;
+    };
+}
+
+# counter is an iterator
+# iterators are functions that:
+#  - take no arguments
+#  - return nil once done
+#  - once returned nil once, must do so for all subsequent calls
+# the interpreter only checks the first requirement
+let counter = count_by(2, 5);
+println(counter()); # 0
+println(counter()); # 2
+println(counter()); # 4
+# println(counter()); # nil
+# println(counter()); # nil
+
+println("counting by 3s up to 20:");
+for n: count_by(3, 20) {
+    println(n);
+}
+
+println("counting by 7s up to 40:");
+for n: count_by(7, 40) {
+    println(n);
+}
+

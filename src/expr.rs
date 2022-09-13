@@ -8,11 +8,11 @@ pub enum Stmt {
     Let { lhs: Token, rhs: Option<Expr> },
     Block { stmts: Vec<Stmt> },
     If { if_clauses: Vec<(Expr, Stmt)>, else_clause: Option<Box<Stmt>> },
-    For { var: Token, expr: Expr, stmt: Box<Stmt> },
+    For { var: Token, expr: Expr, stmt: Box<Stmt>, iter_pos: Position },
     While { expr: Expr, stmt: Box<Stmt> },
-    Break { tok: Token },
-    Continue { tok: Token },
-    Return { tok: Token, expr: Expr },
+    Break { pos: Position },
+    Continue { pos: Position },
+    Return { pos: Position, expr: Expr },
     Fn { name: Token, args: Vec<Token>, body: Box<Stmt> },
 }
 
@@ -22,7 +22,13 @@ impl fmt::Debug for Stmt {
             Self::Expr { expr } => write!(f, "{:?}", expr),
             Self::Let { lhs, rhs } => write!(f, "(let {:?} = {:?})", lhs, rhs),
             Self::Block { stmts } => write!(f, "(block {:?})", stmts),
-            _ => todo!()
+            Self::If { if_clauses, else_clause } => write!(f, "(if {:?} else {:?})", if_clauses, else_clause),
+            Self::For { var, expr, stmt, .. } => write!(f, "(for {:?} : {:?} do {:?})", var, expr, stmt),
+            Self::While { expr, stmt } => write!(f, "(while {:?} do {:?})", expr, stmt),
+            Self::Break { .. } => write!(f, "(break)"),
+            Self::Continue { .. } => write!(f, "(continue)"),
+            Self::Return { expr, .. } => write!(f, "(return {:?})", expr),
+            Self::Fn { name, args, body } => write!(f, "(fn {:?} {:?} {:?})", name, args, body),
         }
     }
 }

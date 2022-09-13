@@ -47,14 +47,23 @@ impl RuntimeError {
         }
     }
 
+    pub fn new_incomplete<S>(message: S) -> Self
+    where S: Into<String> {
+        Self { 
+            message: message.into(), 
+            stacktrace: vec![],
+            last_pos: None
+        }
+    }
+
     pub fn exit_fn(mut self, fn_name: Option<Rc<str>>, pos: Position) -> Self {
-        self.stacktrace.push(Stackframe { pos: self.last_pos.unwrap(), fn_name });
+        self.stacktrace.push(Stackframe { pos: self.last_pos.expect("RuntimeError never completed after construction"), fn_name });
         self.last_pos = Some(pos);
         self
     }
 
     pub fn finish(mut self, ctx_name: Option<Rc<str>>) -> Self {
-        self.stacktrace.push(Stackframe { pos: self.last_pos.unwrap(), fn_name: ctx_name });
+        self.stacktrace.push(Stackframe { pos: self.last_pos.expect("RuntimeError never completed after construction"), fn_name: ctx_name });
         self.last_pos = None;
         self
     }
@@ -62,7 +71,7 @@ impl RuntimeError {
 
 impl fmt::Display for ParserError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Error: {}\n    In {} at {},{}", 
+        write!(f, "Error: {}\n    In {} at {},{}\n", 
             self.message, 
             self.pos.file.as_ref().map(|o| o.as_ref()).unwrap_or("<unknown>"), 
             self.pos.line, 

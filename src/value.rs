@@ -20,12 +20,49 @@ impl fmt::Debug for BuiltinFunc {
     }
 }
 
-#[derive(Clone, Debug)]
+impl Iterator for BuiltinFunc {
+    type Item = Result<Value, String>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // precondition: function takes zero arguments
+        match (self.func)(vec![]) {
+            Ok(Value::Nil) => None,
+            r => Some(r),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct Func {
     pub name: Option<Rc<str>>,
     pub args: Vec<Rc<str>>,
     pub env: EnvRef,
     pub func: Stmt
+}
+
+impl fmt::Debug for Func {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Func")
+            .field("name", &self.name)
+            .field("args", &self.args)
+            .field("func", &self.func)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Iterator for Func {
+    type Item = Result<Value, RuntimeError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // precondition: function takes zero arguments
+        let env = Environment::extend(self.env.clone()).wrap();
+        match eval_stmt(&self.func, env) {
+            Ok(_) => None,
+            Err(Unwind::Return{ value: Value::Nil, .. }) => None,
+            Err(Unwind::Return{ value, .. }) => Some(Ok(value)),
+            Err(e) => Some(Err(e.as_error()))
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -70,12 +107,26 @@ impl Value {
         }
     }
 
-    pub fn iter(&self) -> Result<Box<dyn Iterator<Item=Value> + '_>, String> {
+    pub fn iter<'a>(&'a self, pos: &'a Position) -> Result<Box<dyn Iterator<Item=Result<Value, RuntimeError>> + '_>, String> {
         match self {
             Value::String(s) 
                 => Ok(Box::new(s.chars()
-                    .map(Value::Char))),
-            Value::List(l) => Ok(Box::new(l.borrow().clone().into_iter())),
+                    .map(Value::Char).map(Ok))),
+            Value::List(l) => Ok(Box::new(l.borrow().clone().into_iter().map(Ok))),
+            Value::BuiltinFunc(bf) => {
+                if bf.arg_count == 0 {
+                    Ok(Box::new(bf.clone().map(|e| e.map_err(|e| RuntimeError::new(e, pos.clone())))))
+                } else {
+                    Err("Only zero-argument functions can be used as iterators".into())
+                }
+            },
+            Value::Func(f) => {
+                if f.args.len() == 0 {
+                    Ok(Box::new(f.clone()))
+                } else {
+                    Err("Only zero-argument functions can be used as iterators".into())
+                }
+            },
             v => Err(format!("{:?} is not iterable", v))
         }
     }

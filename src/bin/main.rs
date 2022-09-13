@@ -1,4 +1,4 @@
-use std::{rc::Rc, cell::RefCell, fs, panic::{self, PanicInfo}, thread::Thread};
+use std::{rc::Rc, cell::RefCell, fs, panic::{self, PanicInfo}};
 
 use backtrace::Backtrace;
 use complexpr::{eval::Environment, interpreter::interpret, value::Value, stdlib};
