@@ -2,32 +2,32 @@ use std::{rc::Rc, io::Write, cmp::Ordering};
 
 use num_traits::ToPrimitive;
 
-use crate::{value::{Value, BuiltinFunc}, eval::Environment};
+use crate::{value::{Value, Func}, eval::Environment};
 
 pub fn load(env: &mut Environment) {
     let mut name: Rc<str>;
     name = Rc::from("str");
-    env.declare(name.clone(), Value::BuiltinFunc(BuiltinFunc { func: fn_str, arg_count: 1, name }));
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_str, arg_count: 1, name }));
     name = Rc::from("repr");
-    env.declare(name.clone(), Value::BuiltinFunc(BuiltinFunc { func: fn_repr, arg_count: 1, name }));
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_repr, arg_count: 1, name }));
     name = Rc::from("print");
-    env.declare(name.clone(), Value::BuiltinFunc(BuiltinFunc { func: fn_print, arg_count: 1, name }));
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_print, arg_count: 1, name }));
     name = Rc::from("println"); 
-    env.declare(name.clone(), Value::BuiltinFunc(BuiltinFunc { func: fn_println, arg_count: 1, name }));
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_println, arg_count: 1, name }));
     name = Rc::from("input"); 
-    env.declare(name.clone(), Value::BuiltinFunc(BuiltinFunc { func: fn_input, arg_count: 0, name }));
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_input, arg_count: 0, name }));
     name = Rc::from("ord"); 
-    env.declare(name.clone(), Value::BuiltinFunc(BuiltinFunc { func: fn_ord, arg_count: 1, name }));
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_ord, arg_count: 1, name }));
     name = Rc::from("chr"); 
-    env.declare(name.clone(), Value::BuiltinFunc(BuiltinFunc { func: fn_chr, arg_count: 1, name }));
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_chr, arg_count: 1, name }));
     name = Rc::from("range"); 
-    env.declare(name.clone(), Value::BuiltinFunc(BuiltinFunc { func: fn_range, arg_count: 2, name }));
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_range, arg_count: 2, name }));
     name = Rc::from("len"); 
-    env.declare(name.clone(), Value::BuiltinFunc(BuiltinFunc { func: fn_len, arg_count: 1, name }));
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_len, arg_count: 1, name }));
     name = Rc::from("re"); 
-    env.declare(name.clone(), Value::BuiltinFunc(BuiltinFunc { func: fn_re, arg_count: 1, name }));
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_re, arg_count: 1, name }));
     name = Rc::from("im"); 
-    env.declare(name.clone(), Value::BuiltinFunc(BuiltinFunc { func: fn_im, arg_count: 1, name }));
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_im, arg_count: 1, name }));
 }
 
 fn fn_str(args: Vec<Value>) -> Result<Value, String> {

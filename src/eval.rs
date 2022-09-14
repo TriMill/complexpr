@@ -152,7 +152,7 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), Unwind> {
         },
         Stmt::Fn { name, args, body } => {
             let name = name.ty.clone().as_ident().unwrap();
-            let func = Func { 
+            let func = Func::Func { 
                 name: Some(name.clone()),
                 args: args.into_iter().map(|a| a.ty.clone().as_ident().unwrap()).collect(),
                 env: env.clone(),
@@ -208,7 +208,7 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
             l.index(&idx).map_err(|e| RuntimeError::new(e, pos.clone()))
         },
         Expr::Fn { args, body } => {
-            let func = Func { 
+            let func = Func::Func { 
                 name: None,
                 args: args.into_iter().map(|a| a.ty.clone().as_ident().unwrap()).collect(),
                 env: env.clone(),

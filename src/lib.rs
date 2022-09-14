@@ -69,6 +69,7 @@ impl RuntimeError {
     }
 }
 
+
 impl fmt::Display for ParserError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Error: {}\n    In {} at {},{}\n", 

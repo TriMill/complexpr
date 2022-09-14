@@ -8,62 +8,134 @@ pub type Rational = num_rational::Ratio<i64>;
 pub type Complex = num_complex::Complex64;
 
 #[derive(Clone)]
-pub struct BuiltinFunc {
-    pub name: Rc<str>,
-    pub func: fn(Vec<Value>) -> Result<Value, String>,
-    pub arg_count: usize
-}
-
-impl fmt::Debug for BuiltinFunc {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("BuiltinFn").field("name", &self.name).field("arg_count", &self.arg_count).finish()
+pub enum Func {
+    Func {
+        name: Option<Rc<str>>,
+        args: Vec<Rc<str>>,
+        env: EnvRef,
+        func: Stmt
+    },
+    Builtin {
+        name: Rc<str>,
+        func: fn(Vec<Value>) -> Result<Value, String>,
+        arg_count: usize
     }
-}
-
-impl Iterator for BuiltinFunc {
-    type Item = Result<Value, String>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // precondition: function takes zero arguments
-        match (self.func)(vec![]) {
-            Ok(Value::Nil) => None,
-            r => Some(r),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct Func {
-    pub name: Option<Rc<str>>,
-    pub args: Vec<Rc<str>>,
-    pub env: EnvRef,
-    pub func: Stmt
 }
 
 impl fmt::Debug for Func {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Func")
-            .field("name", &self.name)
-            .field("args", &self.args)
-            .field("func", &self.func)
-            .finish_non_exhaustive()
+        match self {
+            Self::Func { name, args, .. } 
+                => f.debug_struct("Func::Func")
+                    .field("name", name)
+                    .field("args", args)
+                    .finish_non_exhaustive(),
+            Self::Builtin { name, arg_count, .. } 
+                => f.debug_struct("Func::Builtin") 
+                    .field("name", name)
+                    .field("arg_count", arg_count)
+                    .finish_non_exhaustive(),
+        }
+    }
+    
+}
+
+impl Func {
+    pub fn arg_count(&self) -> usize {
+        match self {
+            Self::Builtin { arg_count, .. } => *arg_count,
+            Self::Func { args, .. } => args.len()
+        }
+    }
+
+    pub fn call(&self, arg_values: Vec<Value>, pos: &Position) -> Result<Value, RuntimeError> {
+        match arg_values.len().cmp(&self.arg_count()) {
+            Ordering::Equal => match self {
+                Self::Builtin { func, .. } 
+                    => func(arg_values).map_err(|e| RuntimeError::new(e, pos.clone())),
+                Self::Func { name, args, func, env } => {
+                    let mut env = Environment::extend(env.clone());
+                    for (k, v) in args.iter().zip(arg_values.iter()) {
+                        env.declare(k.clone(), v.clone());
+                    }
+                    match eval_stmt(func, env.wrap()) {
+                        Ok(()) => Ok(Value::Nil),
+                        Err(Unwind::Return{ value, .. }) => Ok(value),
+                        Err(e) => Err(e.as_error().exit_fn(name.clone(), pos.clone()))
+                    }
+                }
+            }
+            Ordering::Less => Err(RuntimeError::new(
+                format!("Not enough arguments for function: expected {}, got {}", self.arg_count(), arg_values.len()), 
+                pos.clone() 
+            )),
+            Ordering::Greater => Err(RuntimeError::new(
+                format!("Too many arguments for function: expected {}, got {}", self.arg_count(), arg_values.len()), 
+                pos.clone() 
+            ))
+        }
+    }
+}
+
+pub enum EitherRteOrString {
+    Rte(RuntimeError), String(String)
+}
+
+impl EitherRteOrString {
+    pub fn to_rte(self, pos: &Position) -> RuntimeError {
+        match self {
+            Self::Rte(e) => e,
+            Self::String(s) => RuntimeError::new(s, pos.clone())
+        }
+    }
+}
+
+impl From<String> for EitherRteOrString {
+    fn from(s: String) -> Self {
+        Self::String(s)
+    }
+}
+
+impl From<RuntimeError> for EitherRteOrString {
+    fn from(e: RuntimeError) -> Self {
+        Self::Rte(e)
     }
 }
 
 impl Iterator for Func {
-    type Item = Result<Value, RuntimeError>;
-
+    type Item = Result<Value, EitherRteOrString>;
     fn next(&mut self) -> Option<Self::Item> {
-        // precondition: function takes zero arguments
-        let env = Environment::extend(self.env.clone()).wrap();
-        match eval_stmt(&self.func, env) {
-            Ok(_) => None,
-            Err(Unwind::Return{ value: Value::Nil, .. }) => None,
-            Err(Unwind::Return{ value, .. }) => Some(Ok(value)),
-            Err(e) => Some(Err(e.as_error()))
+        match self {
+            Self::Builtin { func, .. } => match (func)(vec![]) {
+                Ok(Value::Nil) => None,
+                r => Some(r.map_err(|e| e.into())),
+            },
+            Self::Func { func, env, .. } => {
+                let env = Environment::extend(env.clone()).wrap();
+                match eval_stmt(&func, env) {
+                    Ok(_) => None,
+                    Err(Unwind::Return{ value: Value::Nil, .. }) => None,
+                    Err(Unwind::Return{ value, .. }) => Some(Ok(value)),
+                    Err(e) => Some(Err(e.as_error().into()))
+                }
+            }
         }
     }
 }
+//
+//#[derive(Clone)]
+//pub struct BuiltinFunc {
+//    pub name: Rc<str>,
+//    pub func: fn(Vec<Value>) -> Result<Value, String>,
+//    pub arg_count: usize
+//}
+//
+//impl fmt::Debug for BuiltinFunc {
+//    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//        f.debug_struct("BuiltinFn").field("name", &self.name).field("arg_count", &self.arg_count).finish()
+//    }
+//}
+//
 
 #[derive(Clone, Debug)]
 pub struct Data {
@@ -87,7 +159,6 @@ pub enum Value {
     Char(char),
     String(Rc<str>), 
     List(Rc<RefCell<Vec<Value>>>), Map(Rc<HashMap<Value,Value>>),
-    BuiltinFunc(BuiltinFunc),
     Func(Func),
     Data(Data),
 }
@@ -113,16 +184,9 @@ impl Value {
                 => Ok(Box::new(s.chars()
                     .map(Value::Char).map(Ok))),
             Value::List(l) => Ok(Box::new(l.borrow().clone().into_iter().map(Ok))),
-            Value::BuiltinFunc(bf) => {
-                if bf.arg_count == 0 {
-                    Ok(Box::new(bf.clone().map(|e| e.map_err(|e| RuntimeError::new(e, pos.clone())))))
-                } else {
-                    Err("Only zero-argument functions can be used as iterators".into())
-                }
-            },
             Value::Func(f) => {
-                if f.args.len() == 0 {
-                    Ok(Box::new(f.clone()))
+                if f.arg_count() == 0 {
+                    Ok(Box::new(f.clone().map(|e| e.map_err(|e| e.to_rte(pos)))))
                 } else {
                     Err("Only zero-argument functions can be used as iterators".into())
                 }
@@ -132,45 +196,10 @@ impl Value {
     }
 
     pub fn call(&self, args: Vec<Value>, pos: &Position) -> Result<Value, RuntimeError> {
-        match self {
-            Value::BuiltinFunc(f) => {
-                match args.len().cmp(&f.arg_count) {
-                    Ordering::Equal => 
-                        (f.func)(args).map_err(|e| RuntimeError::new(e, pos.clone())),
-                    Ordering::Less => Err(RuntimeError::new(
-                        format!("Not enough arguments for function: expected {}, got {}", f.arg_count, args.len()), 
-                        pos.clone() 
-                    )),
-                    Ordering::Greater => Err(RuntimeError::new(
-                        format!("Too many arguments for function: expected {}, got {}", f.arg_count, args.len()), 
-                        pos.clone() 
-                    ))
-                }
-            },
-            Value::Func(f) => {
-                match args.len().cmp(&f.args.len()) {
-                    Ordering::Equal => {
-                        let mut env = Environment::extend(f.env.clone());
-                        for (k, v) in f.args.iter().zip(args.iter()) {
-                            env.declare(k.clone(), v.clone());
-                        }
-                        match eval_stmt(&f.func, env.wrap()) {
-                            Ok(()) => Ok(Value::Nil),
-                            Err(Unwind::Return{ value, .. }) => Ok(value),
-                            Err(e) => Err(e.as_error().exit_fn(f.name.clone(), pos.clone()))
-                        }
-                    },
-                    Ordering::Less => Err(RuntimeError::new(
-                        format!("Not enough arguments for function: expected {}, got {}", f.args.len(), args.len()), 
-                        pos.clone() 
-                    )),
-                    Ordering::Greater => Err(RuntimeError::new(
-                        format!("Too many arguments for function: expected {}, got {}", f.args.len(), args.len()), 
-                        pos.clone() 
-                    ))
-                }
-            },
-            _ => Err(RuntimeError::new("Cannot call", pos.clone()))
+        if let Value::Func(f) = self {
+            f.call(args, pos)
+        } else {
+            Err(RuntimeError::new("Cannot call", pos.clone()))           
         }
     }
 
@@ -187,8 +216,8 @@ impl Value {
             Self::List(l) => Rc::from(format!("{:?}", l)), // TODO fix
             Self::Map(m) => Rc::from(format!("{:?}", m)), // TODO fix
             Self::Type(_) => todo!(),
-            Self::BuiltinFunc(bf) => Rc::from(format!("<builtin fn {} at {:?}>", bf.name, bf.func as *const ())),
-            Self::Func(f) => match &f.name {
+            Self::Func(Func::Builtin { name, func, .. }) => Rc::from(format!("<builtin fn {} at {:?}>", name, *func as *const ())),
+            Self::Func(Func::Func { name, .. }) => match name {
                 Some(name) => Rc::from(format!("<fn {}>", name)),
                 None => Rc::from("<anonymous fn>"),
             },
@@ -209,8 +238,8 @@ impl Value {
             Self::List(l) => Rc::from(format!("{:?}", l.borrow())), // TODO fix
             Self::Map(m) => Rc::from(format!("{:?}", m)), // TODO fix
             Self::Type(_) => todo!(),
-            Self::BuiltinFunc(bf) => Rc::from(format!("<builtin fn {} at {:?}>", bf.name, bf.func as *const ())),
-            Self::Func(f) => match &f.name {
+            Self::Func(Func::Builtin { name, func, .. }) => Rc::from(format!("<builtin fn {} at {:?}>", name, *func as *const ())),
+            Self::Func(Func::Func { name, .. }) => match name {
                 Some(name) => Rc::from(format!("<fn {}>", name)),
                 None => Rc::from("<anonymous fn>"),
             },
@@ -286,8 +315,13 @@ impl PartialEq for Value {
             (Self::String(a), Self::String(b)) => a == b,
             (Self::List(a), Self::List(b)) => a == b,
             (Self::Map(_), Self::Map(_)) => todo!("Can't test maps for equality yet"),
-            (Self::BuiltinFunc(a), Self::BuiltinFunc(b)) 
-                => (a.func as *const ()) == (b.func as *const ()) && a.arg_count == b.arg_count,
+            (Self::Func(f1), Self::Func(f2)) => match (f1, f2) {
+                (
+                    Func::Builtin { func: f1, arg_count: c1, .. },
+                    Func::Builtin { func: f2, arg_count: c2, .. }
+                ) => (*f1 as *const ()) == (*f2 as *const ()) && c1 == c2,
+                 _ => false
+            }
             (Self::Data(_), Self::Data(_)) => todo!("Can't compare data yet"),
             _ => false
         }
