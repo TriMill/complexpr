@@ -40,6 +40,7 @@ pub enum Expr {
     Ident { value: Token },
     Literal { value: Token },
     List { items: Vec<Expr> },
+    Map { items: Vec<(Expr,Expr)> },
     FuncCall { func: Box<Expr>, args: Vec<Expr>, pos: Position },
     Index { lhs: Box<Expr>, index: Box<Expr>, pos: Position },
     Fn { args: Vec<Token>, body: Box<Stmt> },
@@ -53,6 +54,7 @@ impl fmt::Debug for Expr {
             Self::Ident { value } => write!(f, "(ident {:?})", value),
             Self::Literal { value } => write!(f, "(lit {:?})", value),
             Self::List { items } => write!(f, "(list {:?})", items),
+            Self::Map { items } => write!(f, "(map {:?})", items),
             Self::FuncCall { func, args, .. } => write!(f, "(call {:?} {:?})", func, args),
             Self::Index { lhs, index, .. } => write!(f, "(index {:?} {:?})", lhs, index),
             Self::Fn { args, body } => write!(f, "(fn {:?} {:?})", args, body)

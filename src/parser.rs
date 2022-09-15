@@ -223,19 +223,16 @@ impl Parser {
         if let TokenType::LParen = next.ty {} else {
             return Err(ParserError { message: "Expected left parenthesis to start arguments list".into(), pos: next.pos })
         }
-        let args = self.commalist(TokenType::RParen, Self::ident)?.into_iter().map(|e| {
-            if let Expr::Ident { value: i } = e { i }
-            else { panic!() }
-        }).collect();
+        let args = self.commalist(TokenType::RParen, Self::ident)?;
         self.err_on_eof()?;
         let body = self.statement()?;
         Ok(Stmt::Fn { name, args, body: Box::new(body) })
     }
 
-    fn ident(&mut self) -> Result<Expr, ParserError> {
+    fn ident(&mut self) -> Result<Token, ParserError> {
         let next = self.next();
         match next.ty {
-            TokenType::Ident(_) => Ok(Expr::Ident{ value: next }),
+            TokenType::Ident(_) => Ok(next),
             _ => Err(ParserError { message: "Expected identifier".into(), pos: next.pos })
         }
     }
@@ -261,7 +258,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn commalist(&mut self, terminator: TokenType, parse_item: fn(&mut Parser) -> Result<Expr, ParserError>) -> Result<Vec<Expr>, ParserError> {
+    fn commalist<T>(&mut self, terminator: TokenType, parse_item: fn(&mut Parser) -> Result<T, ParserError>) -> Result<Vec<T>, ParserError> {
         let mut items = vec![];
         while !self.at_end() && self.peek().ty != terminator {
             let expr = parse_item(self)?;
@@ -370,6 +367,18 @@ impl Parser {
         Ok(Expr::Index { lhs: Box::new(expr), index: Box::new(index), pos: lbrack.pos })
     }
 
+    fn kv_pair(&mut self) -> Result<(Expr, Expr), ParserError> {
+        let key = self.assignment()?;
+        self.err_on_eof()?;
+        let next = self.next();
+        if next.ty != TokenType::Colon {
+            return Err(ParserError { message: "Expected colon in key-value pair".into(), pos: next.pos })
+        }
+        self.err_on_eof()?;
+        let value = self.assignment()?;
+        Ok((key, value))
+    }
+
     fn expr_base(&mut self) -> Result<Expr, ParserError> {
         self.err_on_eof()?;
         let next = self.next();
@@ -391,16 +400,16 @@ impl Parser {
         } else if next.ty == TokenType::LBrack {
             let items = self.commalist(TokenType::RBrack, Self::assignment)?;
             Ok(Expr::List { items })
+        } else if next.ty == TokenType::LBrace {
+            let items = self.commalist(TokenType::RBrace, Self::kv_pair)?;
+            Ok(Expr::Map { items })
         } else if next.ty == TokenType::Fn {
             self.err_on_eof()?;
             let next = self.next();
             if let TokenType::LParen = next.ty {} else {
                 return Err(ParserError { message: "Expected left parenthesis to start arguments list".into(), pos: next.pos })
             }
-            let args = self.commalist(TokenType::RParen, Self::ident)?.into_iter().map(|e| {
-                if let Expr::Ident { value: i } = e { i }
-                else { panic!() }
-            }).collect();
+            let args = self.commalist(TokenType::RParen, Self::ident)?;
             self.err_on_eof()?;
             let body = self.statement()?;
             Ok(Expr::Fn { args, body: Box::new(body) })

@@ -1,4 +1,4 @@
-use std::{rc::Rc, collections::HashMap, ops::*, fmt, cmp::Ordering, cell::RefCell};
+use std::{rc::Rc, collections::HashMap, ops::*, fmt, cmp::Ordering, cell::RefCell, hash::Hash};
 
 use num_traits::{Zero, ToPrimitive};
 
@@ -77,6 +77,22 @@ impl Func {
     }
 }
 
+impl Hash for Func {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Self::Builtin { name, arg_count, func } => {
+                name.hash(state);
+                arg_count.hash(state);
+                func.hash(state);
+            },
+            Self::Func { name, args, .. } => {
+                name.hash(state);
+                args.hash(state);
+            }
+        }
+    }
+}
+
 pub enum EitherRteOrString {
     Rte(RuntimeError), String(String)
 }
@@ -122,20 +138,6 @@ impl Iterator for Func {
         }
     }
 }
-//
-//#[derive(Clone)]
-//pub struct BuiltinFunc {
-//    pub name: Rc<str>,
-//    pub func: fn(Vec<Value>) -> Result<Value, String>,
-//    pub arg_count: usize
-//}
-//
-//impl fmt::Debug for BuiltinFunc {
-//    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//        f.debug_struct("BuiltinFn").field("name", &self.name).field("arg_count", &self.arg_count).finish()
-//    }
-//}
-//
 
 #[derive(Clone, Debug)]
 pub struct Data {
@@ -158,7 +160,8 @@ pub enum Value {
     Bool(bool), 
     Char(char),
     String(Rc<str>), 
-    List(Rc<RefCell<Vec<Value>>>), Map(Rc<HashMap<Value,Value>>),
+    List(Rc<RefCell<Vec<Value>>>), 
+    Map(Rc<RefCell<HashMap<Value,Value>>>),
     Func(Func),
     Data(Data),
 }
@@ -173,7 +176,7 @@ impl Value {
             Rational(r) => !r.is_zero(),
             String(s) => !s.len() == 0,
             List(l) => !l.borrow().len() == 0,
-            Map(m) => !m.len() == 0,
+            Map(m) => !m.borrow().len() == 0,
             _ => true
         }
     }
@@ -263,14 +266,13 @@ impl Value {
                 Value::Int(i) => Err(format!("List index {} cannot be negative", i)),
                 _ => Err(format!("Cannot index {:?} with {:?}", self, idx))
             }
-            Self::Map(_) => todo!(),
+            Self::Map(m) => m.borrow().get(idx).cloned().ok_or_else(|| format!("Map does not contain key {:?}", idx)),
             v => Err(format!("Cannot index into {:?}", v))
         }
     }
 
     pub fn assign_index(&self, idx: &Value, value: Value) -> Result<(), String> {
         match self {
-            Self::String(_) => todo!("Can't mutate strings yet"),
             Self::List(l) => match idx {
                 Value::Int(i) if *i >= 0 && (*i as usize) < l.borrow().len() => {
                     l.borrow_mut()[*i as usize] = value;
@@ -280,8 +282,11 @@ impl Value {
                 Value::Int(i) => Err(format!("List index {} cannot be negative", i)),
                 _ => Err(format!("Cannot index {:?} with {:?}", self, idx))
             }
-            Self::Map(_) => todo!(),
-            v => Err(format!("Cannot index into {:?}", v))
+            Self::Map(m) => {
+                m.borrow_mut().insert(idx.clone(), value); 
+                Ok(())
+            }
+            v => Err(format!("Cannot assign to index in {:?}", v))
         }
     }
 }
@@ -314,7 +319,19 @@ impl PartialEq for Value {
             (Self::Char(a), Self::Char(b)) => a == b,
             (Self::String(a), Self::String(b)) => a == b,
             (Self::List(a), Self::List(b)) => a == b,
-            (Self::Map(_), Self::Map(_)) => todo!("Can't test maps for equality yet"),
+            (Self::Map(a), Self::Map(b)) => {
+                // prevent double borrow
+                if a.as_ref().as_ptr() == b.as_ref().as_ptr() { return true }
+                if a.borrow().len() != b.borrow().len() { return false }
+                for (k, v1) in a.borrow().iter() {
+                    let bb = b.borrow();
+                    let v2 = bb.get(k);
+                    if v2 != Some(v1) {
+                        return false
+                    }
+                }
+                return true
+            }
             (Self::Func(f1), Self::Func(f2)) => match (f1, f2) {
                 (
                     Func::Builtin { func: f1, arg_count: c1, .. },
@@ -327,6 +344,8 @@ impl PartialEq for Value {
         }
     }
 }
+
+impl Eq for Value {}
 
 impl PartialOrd for Value {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -352,6 +371,43 @@ impl PartialOrd for Value {
     }
 }
 
+fn hash_f64<H: std::hash::Hasher>(f: f64, state: &mut H) {
+    if f.is_nan() {
+        "NaN".hash(state)
+    } else if f == 0.0 {
+        "0.0".hash(state)
+    } else if f.is_infinite() {
+        if f > 0.0 {
+            "+inf".hash(state)
+        } else{
+            "-inf".hash(state)
+        }
+    } else{
+        unsafe { std::mem::transmute::<f64,u64>(f).hash(state) }
+    }
+}
+
+impl Hash for Value {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Self::Nil => "nil".hash(state),
+            Self::Type(_) => todo!(),
+            Self::Int(i) => i.hash(state),
+            Self::Float(f) => hash_f64(*f, state),
+            Self::Complex(z) => { hash_f64(z.re, state); hash_f64(z.im, state); }
+            Self::Rational(r) => { r.numer().hash(state); r.denom().hash(state); }
+            Self::Bool(b) => b.hash(state),
+            Self::Char(c) => c.hash(state),
+            Self::String(s) => s.hash(state),
+            Self::List(l) => l.borrow().hash(state),
+            Self::Map(_) => todo!(),
+            Self::Func(f) => f.hash(state),
+            Self::Data(_) => todo!(),
+
+        }
+    }
+}
+
 macro_rules! value_from {
     ($variant:ident, $($kind:ty)*) => {
         $(
@@ -370,6 +426,12 @@ impl From<Vec<Value>> for Value {
     }
 }
 
+impl From<HashMap<Value,Value>> for Value {
+    fn from(x: HashMap<Value,Value>) -> Self {
+        Self::Map(RefCell::new(x).into())
+    }
+}
+
 value_from!(Int, u8 u16 u32 i8 i16 i32 i64);
 value_from!(Float, f32 f64);
 value_from!(Complex, Complex);
@@ -378,7 +440,7 @@ value_from!(Bool, bool);
 value_from!(String, String Rc<str>);
 value_from!(List, RefCell<Vec<Value>>);
 value_from!(Char, char);
-value_from!(Map, HashMap<Value,Value>);
+value_from!(Map, RefCell<HashMap<Value,Value>>);
 
 
 macro_rules! impl_numeric_op {
@@ -419,6 +481,9 @@ impl Neg for Value {
     fn neg(self) -> Self::Output {
         match self {
             Value::Int(a) => Ok(Value::Int(-a)),
+            Value::Float(a) => Ok(Value::Float(-a)),
+            Value::Rational(a) => Ok(Value::Rational(-a)),
+            Value::Complex(a) => Ok(Value::Complex(-a)),
             _ => Err(format!("Unsupported operation 'neg' on {:?}", self))
         }
     }

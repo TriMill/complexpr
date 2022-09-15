@@ -1,0 +1,36 @@
+fn memoize(f) {
+    let map = {};
+    return fn(x) {
+        if has(map, x) {
+            return map[x];
+        } else {
+            let result = f(x);
+            map[x] = result;
+            return result;
+        }
+    };
+}
+
+fn fib(n) {
+    if n <= 1 {
+        return n;
+    } else {
+        return fib(n-1) + fib(n-2);
+    }
+}
+
+for n: [10,20,25] {
+    let start_time = time();
+    let result = fib(n);
+    let elapsed = time() - start_time;
+    println("time for fib(" + str(n) + ")=" + str(result) + ": " + str(elapsed));
+}
+
+let fib = memoize(fib);
+
+for n: [10,20,25] {
+    let start_time = time();
+    let result = fib(n);
+    let elapsed = time() - start_time;
+    println("time for memoized fib(" + str(n) + ")=" + str(result) + ": " + str(elapsed));
+}

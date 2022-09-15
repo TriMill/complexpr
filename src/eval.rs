@@ -193,6 +193,15 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
             }
             Ok(Value::from(list))
         },
+        Expr::Map { items } => {
+            let mut map = HashMap::with_capacity(items.len());
+            for (k, v) in items {
+                let key = eval_expr(k, env.clone())?;
+                let value = eval_expr(v, env.clone())?;
+                map.insert(key, value);
+            }
+            Ok(Value::from(map))
+        },
         Expr::FuncCall { func, args, pos } => {
             let func = eval_expr(func, env.clone())?;
             let mut arg_values = Vec::with_capacity(args.len());

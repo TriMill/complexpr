@@ -1,4 +1,4 @@
-use std::{rc::Rc, io::Write, cmp::Ordering};
+use std::{rc::Rc, io::Write, cmp::Ordering, time::{SystemTime, UNIX_EPOCH}};
 
 use num_traits::ToPrimitive;
 
@@ -22,12 +22,16 @@ pub fn load(env: &mut Environment) {
     env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_chr, arg_count: 1, name }));
     name = Rc::from("range"); 
     env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_range, arg_count: 2, name }));
+    name = Rc::from("has"); 
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_has, arg_count: 2, name }));
     name = Rc::from("len"); 
     env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_len, arg_count: 1, name }));
     name = Rc::from("re"); 
     env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_re, arg_count: 1, name }));
     name = Rc::from("im"); 
     env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_im, arg_count: 1, name }));
+    name = Rc::from("time"); 
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_time, arg_count: 0, name }));
 }
 
 fn fn_str(args: Vec<Value>) -> Result<Value, String> {
@@ -99,8 +103,15 @@ fn fn_len(args: Vec<Value>) -> Result<Value, String> {
     match &args[0] {
         Value::String(s) => Ok(Value::Int(s.len() as i64)),
         Value::List(l) => Ok(Value::Int(l.borrow().len() as i64)),
-        Value::Map(m) => Ok(Value::Int(m.len() as i64)),
+        Value::Map(m) => Ok(Value::Int(m.borrow().len() as i64)),
         v => Err(format!("{:?} has no length", v))
+    }
+}
+
+fn fn_has(args: Vec<Value>) -> Result<Value, String> {
+    match &args[0] {
+        Value::Map(m) => Ok(Value::from(m.borrow().contains_key(&args[1]))),
+        v => Err(format!("Argument to has must be a map, got {:?} ", v))
     }
 }
 
@@ -121,4 +132,9 @@ fn fn_im(args: Vec<Value>) -> Result<Value, String> {
         Value::Complex(x) => Ok(Value::Float(x.im)),
         x => Err(format!("Cannot get real part of {:?}", x))
     }
+}
+
+fn fn_time(_: Vec<Value>) -> Result<Value, String> {
+    let time = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?;
+    Ok(Value::from(time.as_secs_f64()))
 }
