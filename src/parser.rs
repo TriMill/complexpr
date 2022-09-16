@@ -45,19 +45,19 @@ impl Parser {
     pub fn parse(&mut self) -> Result<Vec<Stmt>, ParserError> {
         let mut stmts = vec![];
         while !self.at_end() {
-            stmts.push(self.statement()?);
+            stmts.push(self.statement(!self.repl)?);
         }
         Ok(stmts)
     }
 
-    fn statement(&mut self) -> Result<Stmt, ParserError> {
+    fn statement(&mut self, req_semicolon: bool) -> Result<Stmt, ParserError> {
         let next_ty = &self.peek().ty;
 
         match next_ty {
             TokenType::Let => {
                 // let statement
                 self.next();
-                self.letstmt()
+                self.letstmt(req_semicolon)
             },
             TokenType::LBrace => {
                 // block
@@ -81,16 +81,16 @@ impl Parser {
             },
             TokenType::Break => {
                 let tok = self.next();
-                self.terminate_stmt(Stmt::Break{ pos: tok.pos })
+                self.terminate_stmt(Stmt::Break{ pos: tok.pos }, req_semicolon)
             },
             TokenType::Continue => {
                 let tok = self.next();
-                self.terminate_stmt(Stmt::Continue{ pos: tok.pos })
+                self.terminate_stmt(Stmt::Continue{ pos: tok.pos }, req_semicolon)
             },
             TokenType::Return => {
                 let tok = self.next();
                 let expr = self.assignment()?;
-                self.terminate_stmt(Stmt::Return{ pos: tok.pos, expr })
+                self.terminate_stmt(Stmt::Return{ pos: tok.pos, expr }, req_semicolon)
             },
             TokenType::Fn => {
                 self.next();
@@ -99,18 +99,17 @@ impl Parser {
             _ => {
                 // fallback to an expression terminated with a semicolon
                 let expr = self.assignment()?;
-                self.terminate_stmt(Stmt::Expr{ expr })
+                self.terminate_stmt(Stmt::Expr{ expr }, req_semicolon)
             }
         }
     }
 
-    fn terminate_stmt(&mut self, stmt: Stmt) -> Result<Stmt, ParserError> {
+    fn terminate_stmt(&mut self, stmt: Stmt, req_semicolon: bool) -> Result<Stmt, ParserError> {
+        if !req_semicolon {
+            return Ok(stmt)
+        }
         if self.at_end() {
-            if self.repl {
-                return Ok(stmt)
-            } else {
-                self.err_on_eof()?;
-            }
+            self.err_on_eof()?;
         }
 
         let next = self.next();
@@ -122,39 +121,17 @@ impl Parser {
 
     }
 
-    fn letstmt(&mut self) -> Result<Stmt, ParserError> {
+    fn letstmt(&mut self, req_semicolon: bool) -> Result<Stmt, ParserError> {
         let expr = self.assignment()?;
         // must be followed by an assignment expression
         if let Expr::Binary{lhs, rhs, op: Token{ty: TokenType::Equal,..}} = expr {
             if let Expr::Ident{value: tok} = *lhs {
-                if self.at_end() {
-                    if self.repl {
-                        return Ok(Stmt::Let{lhs: tok, rhs: Some(*rhs)})
-                    } else {
-                        self.err_on_eof()?;
-                    }
-                }
-                let next = self.next();
-                match next.ty {
-                    TokenType::Semicolon => Ok(Stmt::Let{lhs: tok, rhs: Some(*rhs)}),
-                    _ => Err(self.mk_error("Missing semicolon after 'let' statement".to_owned()))
-                }
+                self.terminate_stmt(Stmt::Let{lhs: tok, rhs: Some(*rhs)}, req_semicolon)
             } else {
                 Err(self.mk_error("Invalid expression after 'let'".to_owned()))
             }
         } else if let Expr::Ident{value: tok} = expr {
-            if self.at_end() {
-                if self.repl {
-                    return Ok(Stmt::Let{lhs: tok, rhs: None})
-                } else {
-                    self.err_on_eof()?;
-                }
-            }
-            let next = self.next();
-            match next.ty {
-                TokenType::Semicolon => Ok(Stmt::Let{lhs: tok, rhs: None}),
-                _ => Err(self.mk_error("Missing semicolon after 'let' statement".to_owned()))
-            }
+            self.terminate_stmt(Stmt::Let{lhs: tok, rhs: None}, req_semicolon)
         } else {
             Err(self.mk_error("Invalid expression after 'let'".to_owned()))
         }
@@ -165,7 +142,7 @@ impl Parser {
         let mut ec = false;
         loop {
             let condition = self.assignment()?;
-            let body = self.statement()?;
+            let body = self.statement(true)?;
             if_clauses.push((condition, body));
             match self.peek().ty {
                 TokenType::Elif => { self.next(); continue },
@@ -174,7 +151,7 @@ impl Parser {
             }
         }
         let else_clause = if ec {
-            Some(Box::new(self.statement()?))
+            Some(Box::new(self.statement(true)?))
         } else {
             None
         };
@@ -195,7 +172,7 @@ impl Parser {
             self.err_on_eof()?;
             let expr = self.assignment()?;
             self.err_on_eof()?;
-            let stmt = self.statement()?;
+            let stmt = self.statement(true)?;
             Ok(Stmt::For{ var, expr, stmt: Box::new(stmt), iter_pos: colon.pos })
         } else {
             Err(self.mk_error("Expected identifier after for"))
@@ -206,7 +183,7 @@ impl Parser {
         self.err_on_eof()?;
         let expr = self.assignment()?;
         self.err_on_eof()?;
-        let stmt = self.statement()?;
+        let stmt = self.statement(true)?;
         Ok(Stmt::While{ expr, stmt: Box::new(stmt) })
     }
 
@@ -225,7 +202,7 @@ impl Parser {
         }
         let args = self.commalist(TokenType::RParen, Self::ident)?;
         self.err_on_eof()?;
-        let body = self.statement()?;
+        let body = self.statement(false)?;
         Ok(Stmt::Fn { name, args, body: Box::new(body) })
     }
 
@@ -240,7 +217,7 @@ impl Parser {
     fn block(&mut self) -> Result<Stmt, ParserError> {
         let mut stmts = vec![];
         while !self.at_end() && self.peek().ty != TokenType::RBrace {
-            stmts.push(self.statement()?)
+            stmts.push(self.statement(true)?)
         }
         self.err_on_eof()?;
         self.next();
@@ -411,7 +388,7 @@ impl Parser {
             }
             let args = self.commalist(TokenType::RParen, Self::ident)?;
             self.err_on_eof()?;
-            let body = self.statement()?;
+            let body = self.statement(false)?;
             Ok(Expr::Fn { args, body: Box::new(body) })
         } else {
             Err(self.mk_error(format!("Unexpected token: {:?}", next.ty)))

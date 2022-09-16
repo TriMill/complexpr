@@ -3,7 +3,7 @@ let also_square(x) = x^2;
 
 let primes = range(100) |: filter(is_prime);
 let prime_squares = range(100) |: map(square);
-let also_prime_squares = range(100) |? is_prime |> square;
+let also_prime_squares = range(100) |? is_prime |: square;
 
 # 
 let primes_and_prime_squares = primes |& prime_squares;
@@ -27,6 +27,6 @@ for p : primes {
 
 let D = x -> {
     let facts = factors(x);
-    let product = facts |: foldl(1, mul);
-    return facts |> (n -> product / n) |: foldl(0, add);
+    let product = facts |> foldl(1, mul);
+    return facts |: (n -> product / n) |> foldl(0, add);
 }

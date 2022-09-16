@@ -1,8 +1,8 @@
 use std::{rc::Rc, collections::HashMap, ops::*, fmt, cmp::Ordering, cell::RefCell, hash::Hash};
 
-use num_traits::{Zero, ToPrimitive};
+use num_traits::{Zero, ToPrimitive, Pow};
 
-use crate::{RuntimeError, Position, eval::{EnvRef, eval_stmt, Environment, Unwind}, expr::Stmt};
+use crate::{RuntimeError, eval::{EnvRef, eval_stmt, Environment, Unwind, eval_expr}, expr::Stmt};
 
 pub type Rational = num_rational::Ratio<i64>;
 pub type Complex = num_complex::Complex64;
@@ -13,12 +13,18 @@ pub enum Func {
         name: Option<Rc<str>>,
         args: Vec<Rc<str>>,
         env: EnvRef,
-        func: Stmt
+        func: Stmt,
     },
     Builtin {
         name: Rc<str>,
-        func: fn(Vec<Value>) -> Result<Value, String>,
-        arg_count: usize
+        func: fn(Vec<Value>) -> Result<Value, RuntimeError>,
+        arg_count: usize,
+    },
+    BuiltinClosure { 
+        func: fn(Vec<Value>, Rc<RefCell<Vec<Value>>>, Rc<RefCell<Vec<CIterator>>>) -> Result<Value, RuntimeError>,
+        data: Rc<RefCell<Vec<Value>>>,
+        iter_data: Rc<RefCell<Vec<CIterator>>>,
+        arg_count: usize,
     }
 }
 
@@ -35,6 +41,11 @@ impl fmt::Debug for Func {
                     .field("name", name)
                     .field("arg_count", arg_count)
                     .finish_non_exhaustive(),
+            Self::BuiltinClosure { arg_count, data, .. } 
+                => f.debug_struct("Func::BuiltinClosure") 
+                    .field("arg_count", arg_count)
+                    .field("data", data)
+                    .finish_non_exhaustive(),
         }
     }
     
@@ -44,34 +55,39 @@ impl Func {
     pub fn arg_count(&self) -> usize {
         match self {
             Self::Builtin { arg_count, .. } => *arg_count,
-            Self::Func { args, .. } => args.len()
+            Self::BuiltinClosure { arg_count, .. } => *arg_count,
+            Self::Func { args, .. } => args.len(),
         }
     }
 
-    pub fn call(&self, arg_values: Vec<Value>, pos: &Position) -> Result<Value, RuntimeError> {
+    pub fn call(&self, arg_values: Vec<Value>) -> Result<Value, RuntimeError> {
         match arg_values.len().cmp(&self.arg_count()) {
             Ordering::Equal => match self {
                 Self::Builtin { func, .. } 
-                    => func(arg_values).map_err(|e| RuntimeError::new(e, pos.clone())),
-                Self::Func { name, args, func, env } => {
+                    => func(arg_values),
+                Self::BuiltinClosure { func, data, iter_data, .. } 
+                    => func(arg_values, data.clone(), iter_data.clone()),
+                Self::Func { args, func, env, .. } => {
                     let mut env = Environment::extend(env.clone());
                     for (k, v) in args.iter().zip(arg_values.iter()) {
                         env.declare(k.clone(), v.clone());
                     }
-                    match eval_stmt(func, env.wrap()) {
-                        Ok(()) => Ok(Value::Nil),
-                        Err(Unwind::Return{ value, .. }) => Ok(value),
-                        Err(e) => Err(e.as_error().exit_fn(name.clone(), pos.clone()))
+                    match func {
+                        Stmt::Expr { expr } => eval_expr(expr, env.wrap()),
+                        stmt => match eval_stmt(stmt, env.wrap()) {
+                            Ok(()) => Ok(Value::Nil),
+                            Err(Unwind::Return{ value, .. }) => Ok(value),
+                            Err(e) => Err(e.as_error()),
+                        }
+
                     }
                 }
             }
-            Ordering::Less => Err(RuntimeError::new(
-                format!("Not enough arguments for function: expected {}, got {}", self.arg_count(), arg_values.len()), 
-                pos.clone() 
+            Ordering::Less => Err(RuntimeError::new_incomplete(
+                format!("Not enough arguments for function: expected {}, got {}", self.arg_count(), arg_values.len())
             )),
-            Ordering::Greater => Err(RuntimeError::new(
-                format!("Too many arguments for function: expected {}, got {}", self.arg_count(), arg_values.len()), 
-                pos.clone() 
+            Ordering::Greater => Err(RuntimeError::new_incomplete(
+                format!("Too many arguments for function: expected {}, got {}", self.arg_count(), arg_values.len())
             ))
         }
     }
@@ -88,53 +104,39 @@ impl Hash for Func {
             Self::Func { name, args, .. } => {
                 name.hash(state);
                 args.hash(state);
+            },
+            Self::BuiltinClosure { arg_count, data, .. } => {
+                arg_count.hash(state);
+                data.borrow().hash(state);
             }
         }
     }
 }
 
-pub enum EitherRteOrString {
-    Rte(RuntimeError), String(String)
+pub enum CIterator {
+    // precondition: value must be len()able
+    Indexable{ value: Value, idx: i64 },
+    Func(Func)
 }
 
-impl EitherRteOrString {
-    pub fn to_rte(self, pos: &Position) -> RuntimeError {
-        match self {
-            Self::Rte(e) => e,
-            Self::String(s) => RuntimeError::new(s, pos.clone())
-        }
-    }
-}
+impl Iterator for CIterator {
+    type Item = Result<Value, RuntimeError>;
 
-impl From<String> for EitherRteOrString {
-    fn from(s: String) -> Self {
-        Self::String(s)
-    }
-}
-
-impl From<RuntimeError> for EitherRteOrString {
-    fn from(e: RuntimeError) -> Self {
-        Self::Rte(e)
-    }
-}
-
-impl Iterator for Func {
-    type Item = Result<Value, EitherRteOrString>;
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            Self::Builtin { func, .. } => match (func)(vec![]) {
-                Ok(Value::Nil) => None,
-                r => Some(r.map_err(|e| e.into())),
-            },
-            Self::Func { func, env, .. } => {
-                let env = Environment::extend(env.clone()).wrap();
-                match eval_stmt(&func, env) {
-                    Ok(_) => None,
-                    Err(Unwind::Return{ value: Value::Nil, .. }) => None,
-                    Err(Unwind::Return{ value, .. }) => Some(Ok(value)),
-                    Err(e) => Some(Err(e.as_error().into()))
+            Self::Indexable{ value, ref mut idx } => {
+                if *idx >= value.len().unwrap() as i64 {
+                    None
+                } else {
+                    let result = value.index(&Value::Int(*idx)).unwrap();
+                    *idx += 1;
+                    Some(Ok(result))
                 }
-            }
+            },
+            Self::Func(f) => match f.call(vec![]) {
+                Ok(Value::Nil) => None,
+                x => Some(x)
+            },
         }
     }
 }
@@ -152,7 +154,6 @@ pub struct Type {
 }
 
 #[derive(Clone, Debug)]
-#[repr(u8)]
 pub enum Value {
     Nil,
     Type(usize),
@@ -177,19 +178,18 @@ impl Value {
             String(s) => !s.len() == 0,
             List(l) => !l.borrow().len() == 0,
             Map(m) => !m.borrow().len() == 0,
+            Char(c) => *c != '\0',
             _ => true
         }
     }
 
-    pub fn iter<'a>(&'a self, pos: &'a Position) -> Result<Box<dyn Iterator<Item=Result<Value, RuntimeError>> + '_>, String> {
+    pub fn iter<'a>(&'a self) -> Result<CIterator, String> {
         match self {
-            Value::String(s) 
-                => Ok(Box::new(s.chars()
-                    .map(Value::Char).map(Ok))),
-            Value::List(l) => Ok(Box::new(l.borrow().clone().into_iter().map(Ok))),
+            Value::String(_) | Value::List(_)
+                => Ok(CIterator::Indexable { value: self.clone(), idx: 0 }),
             Value::Func(f) => {
                 if f.arg_count() == 0 {
-                    Ok(Box::new(f.clone().map(|e| e.map_err(|e| e.to_rte(pos)))))
+                    Ok(CIterator::Func(f.clone()))
                 } else {
                     Err("Only zero-argument functions can be used as iterators".into())
                 }
@@ -198,11 +198,11 @@ impl Value {
         }
     }
 
-    pub fn call(&self, args: Vec<Value>, pos: &Position) -> Result<Value, RuntimeError> {
+    pub fn call(&self, args: Vec<Value>) -> Result<Value, RuntimeError> {
         if let Value::Func(f) = self {
-            f.call(args, pos)
+            f.call(args)
         } else {
-            Err(RuntimeError::new("Cannot call", pos.clone()))           
+            Err(RuntimeError::new_incomplete("Cannot call"))           
         }
     }
 
@@ -220,6 +220,7 @@ impl Value {
             Self::Map(m) => Rc::from(format!("{:?}", m)), // TODO fix
             Self::Type(_) => todo!(),
             Self::Func(Func::Builtin { name, func, .. }) => Rc::from(format!("<builtin fn {} at {:?}>", name, *func as *const ())),
+            Self::Func(Func::BuiltinClosure { func, .. }) => Rc::from(format!("<builtin anonymous fn at {:?}>", *func as *const ())),
             Self::Func(Func::Func { name, .. }) => match name {
                 Some(name) => Rc::from(format!("<fn {}>", name)),
                 None => Rc::from("<anonymous fn>"),
@@ -242,6 +243,7 @@ impl Value {
             Self::Map(m) => Rc::from(format!("{:?}", m)), // TODO fix
             Self::Type(_) => todo!(),
             Self::Func(Func::Builtin { name, func, .. }) => Rc::from(format!("<builtin fn {} at {:?}>", name, *func as *const ())),
+            Self::Func(Func::BuiltinClosure { func, .. }) => Rc::from(format!("<builtin anonymous fn at {:?}>", *func as *const ())),
             Self::Func(Func::Func { name, .. }) => match name {
                 Some(name) => Rc::from(format!("<fn {}>", name)),
                 None => Rc::from("<anonymous fn>"),
@@ -287,6 +289,15 @@ impl Value {
                 Ok(())
             }
             v => Err(format!("Cannot assign to index in {:?}", v))
+        }
+    }
+
+    pub fn len(&self) -> Result<usize, String> {
+        match self {
+            Value::String(s) => Ok(s.len()),
+            Value::List(l) => Ok(l.borrow().len()),
+            Value::Map(m) => Ok(m.borrow().len()),
+            v => Err(format!("{:?} has no length", v).into())
         }
     }
 }
@@ -449,9 +460,9 @@ macro_rules! impl_numeric_op {
             type Output = Result<Value, String>;
             fn $fnname(self, other: Self) -> Self::Output {
                 use Value::*;
-                use num_traits::ToPrimitive;
                 const RATIO_CAST_FAIL: &'static str = "Failed to cast Rational to Float";
                 match (self, other) {
+                    $($bonus)*
                     (Int(a),      Int(b))      => Ok(a.$fnname(b).into()),
                     (Rational(a), Int(b))      => Ok(a.$fnname(b).into()),
                     (Int(a),      Rational(b)) => Ok(self::Rational::from(*a).$fnname(b).into()),
@@ -468,7 +479,6 @@ macro_rules! impl_numeric_op {
                     (Rational(a), Complex(b))  => Ok(self::Complex::from(a.to_f64().ok_or(RATIO_CAST_FAIL)?).$fnname(b).into()),
                     (Complex(a),  Rational(b)) => Ok(a.$fnname(self::Complex::from(b.to_f64().ok_or(RATIO_CAST_FAIL)?)).into()),
                     (Complex(a),  Complex(b))  => Ok(a.$fnname(b).into()),
-                    $($bonus)*
                     (lhs, rhs) => Err(format!("Unsupported operation '{}' between {:?} and {:?}", stringify!($fnname), lhs, rhs))
                 }
             }
@@ -515,5 +525,51 @@ impl_numeric_op!(Mul, mul, {
     (List(a), Int(b)) | (Int(b), List(a))
         => Ok(Value::from(a.borrow().iter().cycle().take(a.borrow().len()*(*b as usize)).cloned().collect::<Vec<Value>>())),
 });
-impl_numeric_op!(Div, div, {});
-impl_numeric_op!(Rem, rem, {});
+impl_numeric_op!(Div, div, {
+    (Int(_), Int(b)) if *b == 0 => Err("Integer division by zero".into()),
+    (Rational(_), Int(b)) if *b == 0 => Err("Rational division by zero".into()),
+    (Int(_), Rational(b)) if b.is_zero() => Err("Rational division by zero".into()),
+    (Rational(_), Rational(b)) if b.is_zero() => Err("Rational division by zero".into()),
+});
+impl_numeric_op!(Rem, rem, {
+    (Int(_), Int(b)) if *b == 0 => Err("Integer modulo by zero".into()),
+    (Rational(_), Int(b)) if *b == 0 => Err("Rational modulo by zero".into()),
+    (Int(_), Rational(b)) if b.is_zero() => Err("Rational modulo by zero".into()),
+    (Rational(_), Rational(b)) if b.is_zero() => Err("Rational modulo by zero".into()),
+});
+
+impl Pow<&Value> for &Value {
+    type Output = Result<Value, String>;
+
+    fn pow(self, other: &Value) -> Self::Output {
+        use Value::*;
+        const RATIO_CAST_FAIL: &'static str = "Failed to convert rational to float";
+        match (self, other) {
+            (Int(a),      Int(b)) => match b {
+                x if *x < 0 => Err(format!("Cannot raise integer {:?} to negative integer exponent {:?}", a, b)),
+                x if *x > (u32::MAX as i64) => Err(format!("Integer exponent {:?} too large", x)),
+                _ => Ok(Value::from(a.pow(*b as u32)))
+            },
+            (Rational(a), Int(b))      => match b {
+                x if *x > (i32::MAX as i64) => Err(format!("Integer exponent {:?} too large", x)),
+                x if *x < (i32::MIN as i64) => Err(format!("Integer exponent {:?} too small", x)),
+                _ => Ok(Value::from(a.pow(*b as i32)))
+            },
+            (Int(_),      Rational(_)) => Err("Cannot raise integer to rational exponent".into()),
+            (Rational(_), Rational(_)) => Err("Cannot raise rational to rational exponent".into()),
+            (Float(a),    Int(b))      => Ok(a.pow(*b as f64).into()),
+            (Int(a),      Float(b))    => Ok((*a as f64).pow(b).into()),
+            (Float(a),    Rational(b)) => Ok(a.pow(b.to_f64().ok_or(RATIO_CAST_FAIL)?).into()),
+            (Rational(a), Float(b))    => Ok(a.to_f64().ok_or(RATIO_CAST_FAIL)?.pow(b).into()),
+            (Float(a),    Float(b))    => Ok(a.pow(b).into()),
+            (Int(a),      Complex(b))  => Ok(self::Complex::from(*a as f64).pow(b).into()),
+            (Complex(a),  Int(b))      => Ok(a.pow(self::Complex::from(*b as f64)).into()),
+            (Float(a),    Complex(b))  => Ok(self::Complex::from(a).pow(b).into()),
+            (Complex(a),  Float(b))    => Ok(a.pow(self::Complex::from(b)).into()),
+            (Rational(a), Complex(b))  => Ok(self::Complex::from(a.to_f64().ok_or(RATIO_CAST_FAIL)?).pow(b).into()),
+            (Complex(a),  Rational(b)) => Ok(a.pow(self::Complex::from(b.to_f64().ok_or(RATIO_CAST_FAIL)?)).into()),
+            (Complex(a),  Complex(b))  => Ok(a.pow(b).into()),
+            (lhs, rhs) => Err(format!("Unsupported operation 'pow' between {:?} and {:?}", lhs, rhs))
+        }
+    }
+}

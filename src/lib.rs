@@ -56,6 +56,13 @@ impl RuntimeError {
         }
     }
 
+    pub fn complete(mut self, last_pos: Position) -> Self {
+        if self.last_pos.is_none() {
+            self.last_pos = Some(last_pos);
+        }
+        self
+    }
+
     pub fn exit_fn(mut self, fn_name: Option<Rc<str>>, pos: Position) -> Self {
         self.stacktrace.push(Stackframe { pos: self.last_pos.expect("RuntimeError never completed after construction"), fn_name });
         self.last_pos = Some(pos);
@@ -69,6 +76,17 @@ impl RuntimeError {
     }
 }
 
+impl From<String> for RuntimeError {
+    fn from(s: String) -> Self {
+        Self::new_incomplete(s)
+    }
+}
+
+impl From<&str> for RuntimeError {
+    fn from(s: &str) -> Self {
+        Self::new_incomplete(s)
+    }
+}
 
 impl fmt::Display for ParserError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -1,6 +1,8 @@
 use std::{collections::HashMap, rc::Rc, cell::RefCell};
 
-use crate::{value::{Value, Complex, Func}, expr::{Stmt, Expr}, token::{TokenType, Token, OpType}, RuntimeError, Position};
+use num_traits::{Pow, Zero};
+
+use crate::{value::{Value, Complex, Func, Rational, CIterator}, expr::{Stmt, Expr}, token::{TokenType, Token, OpType}, RuntimeError, Position};
 
 #[derive(Debug)]
 pub struct Environment {
@@ -118,13 +120,13 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), Unwind> {
             let name = unwrap_ident_token(var);
             let iter = eval_expr(expr, env.clone())?;
             env.borrow_mut().declare(name.clone(), Value::Nil);
-            let iterator = iter.iter(iter_pos);
+            let iterator = iter.iter();
             if let Err(e) = iterator {
-                return Err(RuntimeError::new(e, var.pos.clone()).into())
+                return Err(RuntimeError::new(e, iter_pos.clone()).into())
             }
             if let Ok(i) = iterator {
                 for v in i {
-                    let v = v?;
+                    let v = v.map_err(|e| e.complete(iter_pos.clone()))?;
                     let env = env.clone();
                     env.borrow_mut().set(name.clone(), v).expect("unreachable");
                     match eval_stmt(stmt, env) {
@@ -177,12 +179,14 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
         Expr::Binary { lhs, rhs, op } => match op.ty.get_op_type() {
             Some(OpType::Assignment) 
                 => eval_assignment(lhs, rhs, op, env),
-            Some(OpType::Additive) | Some(OpType::Multiplicative)
-                => eval_binary(lhs, rhs, op, env),
+            Some(OpType::Additive) | Some(OpType::Multiplicative) | Some(OpType::Exponential)
+                => eval_arith(lhs, rhs, op, env),
             Some(OpType::Boolean) 
                 => eval_boolean(lhs, rhs, op, env),
             Some(OpType::Comparison)
                 => eval_comp(lhs, rhs, op, env),
+            Some(OpType::Pipeline)
+                => eval_pipeline(lhs, rhs, op, env),
             o => todo!("{:?}", o) // TODO other operations
         },
         Expr::Unary { arg, op } => eval_unary(arg, op, env),
@@ -209,7 +213,7 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
                 let result = eval_expr(arg, env.clone())?;
                 arg_values.push(result);
             }
-            func.call(arg_values, pos)
+            func.call(arg_values).map_err(|e| e.complete(pos.clone()))
         },
         Expr::Index { lhs, index, pos } => {
             let l = eval_expr(lhs, env.clone())?;
@@ -308,7 +312,7 @@ pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Resul
     }
 }
 
-pub fn eval_binary(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
+pub fn eval_arith(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
     let l = eval_expr(lhs, env.clone())?;
     let r = eval_expr(rhs, env)?;
     match op.ty {
@@ -317,6 +321,18 @@ pub fn eval_binary(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Va
         TokenType::Star => &l * &r,
         TokenType::Slash => &l / &r,
         TokenType::Percent => &l % &r,
+        TokenType::Caret => l.pow(&r),
+        TokenType::DoubleSlash => match (l, r) {
+            (Value::Int(_), Value::Int(b)) if b == 0 => Err("Integer division by zero".into()),
+            (Value::Rational(_), Value::Int(b)) if b == 0 => Err("Rational division by zero".into()),
+            (Value::Int(_), Value::Rational(b)) if b.is_zero() => Err("Rational division by zero".into()),
+            (Value::Rational(_), Value::Rational(b)) if b.is_zero() => Err("Rational division by zero".into()),
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Rational(Rational::new(a, b))),
+            (Value::Rational(a), Value::Int(b)) => Ok(Value::from(a/b)),
+            (Value::Int(a), Value::Rational(b)) => Ok(Value::from(b.recip()*a)),
+            (Value::Rational(a), Value::Rational(b)) => Ok(Value::from(a/b)),
+            (x,y) => Err(format!("Unsupported operation 'fracdiv' between {:?} and {:?}", x, y))
+        },
         _ => todo!() // TODO other operations
     }.map_err(|e| RuntimeError::new(e, op.pos.clone()))
 }
@@ -364,6 +380,55 @@ pub fn eval_comp(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Valu
             .ok_or_else(mk_err)
             .map(|o| Value::from(o as i8)),
         _ => unreachable!()
+    }
+}
+
+fn pipecolon_inner(_: Vec<Value>, data: Rc<RefCell<Vec<Value>>>, iter_data: Rc<RefCell<Vec<CIterator>>>) -> Result<Value, RuntimeError> {
+    let f = &data.borrow()[0];
+    if let Some(next) = iter_data.borrow_mut()[0].next() {
+        f.call(vec![next?])
+    } else {
+        Ok(Value::Nil)
+    }
+}
+
+fn pipequestion_inner(_: Vec<Value>, data: Rc<RefCell<Vec<Value>>>, iter_data: Rc<RefCell<Vec<CIterator>>>) -> Result<Value, RuntimeError> {
+    let f = &data.borrow()[0];
+    loop {
+        let next = iter_data.borrow_mut()[0].next();
+        if let Some(next) = next {
+            let next = next?;
+            let success = f.call(vec![next.clone()])?.truthy();
+            if success {
+                return Ok(next)
+            }
+        } else {
+            return Ok(Value::Nil)
+        }
+    }
+}
+
+pub fn eval_pipeline(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
+    let l = eval_expr(lhs, env.clone())?;
+    let r = eval_expr(rhs, env)?;
+    match op.ty {
+        TokenType::PipeColon => {
+            Ok(Value::Func(Func::BuiltinClosure {
+                arg_count: 0,
+                data: Rc::new(RefCell::new(vec![r])),
+                iter_data: Rc::new(RefCell::new(vec![l.iter()?])),
+                func: pipecolon_inner,
+            }))
+        },
+        TokenType::PipeQuestion => {
+            Ok(Value::Func(Func::BuiltinClosure {
+                arg_count: 0,
+                data: Rc::new(RefCell::new(vec![r])),
+                iter_data: Rc::new(RefCell::new(vec![l.iter()?])),
+                func: pipequestion_inner,
+            }))
+        },
+        _ => todo!()
     }
 }
 

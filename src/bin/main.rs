@@ -25,6 +25,7 @@ fn panic_hook(info: &PanicInfo) {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("{}", std::mem::size_of::<Value>());
     panic::set_hook(Box::new(panic_hook));
     let args: Vec<String> = std::env::args().collect();
     if args.len() == 2 {
