@@ -6,6 +6,8 @@ use crate::{RuntimeError, eval::{eval_stmt, Unwind, eval_expr}, expr::Stmt, env:
 
 pub type Rational = num_rational::Ratio<i64>;
 pub type Complex = num_complex::Complex64;
+pub type ClosureData = Rc<RefCell<Vec<Value>>>;
+pub type ClosureIterData = Rc<RefCell<Vec<CIterator>>>;
 
 #[derive(Clone)]
 pub enum Func {
@@ -13,7 +15,7 @@ pub enum Func {
         name: Option<Rc<str>>,
         args: Vec<Rc<str>>,
         env: EnvRef,
-        func: Stmt,
+        func: Box<Stmt>,
     },
     Builtin {
         name: Rc<str>,
@@ -21,9 +23,9 @@ pub enum Func {
         arg_count: usize,
     },
     BuiltinClosure { 
-        func: fn(Vec<Value>, Rc<RefCell<Vec<Value>>>, Rc<RefCell<Vec<CIterator>>>) -> Result<Value, RuntimeError>,
-        data: Rc<RefCell<Vec<Value>>>,
-        iter_data: Rc<RefCell<Vec<CIterator>>>,
+        func: fn(Vec<Value>, ClosureData, ClosureIterData) -> Result<Value, RuntimeError>,
+        data: ClosureData,
+        iter_data: ClosureIterData,
         arg_count: usize,
     },
     Partial {
@@ -91,7 +93,7 @@ impl Func {
                     for (k, v) in args.iter().zip(arg_values.iter()) {
                         env.declare(k.clone(), v.clone());
                     }
-                    match func {
+                    match func.as_ref() {
                         Stmt::Expr { expr } => eval_expr(expr, env.wrap()),
                         stmt => match eval_stmt(stmt, env.wrap()) {
                             Ok(()) => Ok(Value::Nil),
@@ -211,7 +213,7 @@ impl Value {
         }
     }
 
-    pub fn iter<'a>(&'a self) -> Result<CIterator, String> {
+    pub fn iter(&self) -> Result<CIterator, String> {
         match self {
             Value::String(_) | Value::List(_)
                 => Ok(CIterator::Indexable { value: self.clone(), idx: 0 }),
@@ -318,7 +320,7 @@ impl Value {
             Value::String(s) => Ok(s.len()),
             Value::List(l) => Ok(l.borrow().len()),
             Value::Map(m) => Ok(m.borrow().len()),
-            v => Err(format!("{:?} has no length", v).into())
+            v => Err(format!("{:?} has no length", v))
         }
     }
 
@@ -338,6 +340,7 @@ impl Value {
     }
 }
 
+#[allow(clippy::ptr_eq)] // provided fix does not work
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -377,7 +380,7 @@ impl PartialEq for Value {
                         return false
                     }
                 }
-                return true
+                true
             }
             (Self::Func(f1), Self::Func(f2)) => match (f1, f2) {
                 (
@@ -430,7 +433,7 @@ fn hash_f64<H: std::hash::Hasher>(f: f64, state: &mut H) {
             "-inf".hash(state)
         }
     } else{
-        unsafe { std::mem::transmute::<f64,u64>(f).hash(state) }
+        f.to_bits().hash(state);
     }
 }
 
@@ -579,7 +582,7 @@ impl Pow<&Value> for &Value {
 
     fn pow(self, other: &Value) -> Self::Output {
         use Value::*;
-        const RATIO_CAST_FAIL: &'static str = "Failed to convert rational to float";
+        const RATIO_CAST_FAIL: &str = "Failed to convert rational to float";
         match (self, other) {
             (Int(a),      Int(b)) => match b {
                 x if *x < 0 => Err(format!("Cannot raise integer {:?} to negative integer exponent {:?}", a, b)),

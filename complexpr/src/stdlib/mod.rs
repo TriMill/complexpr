@@ -91,9 +91,8 @@ fn fn_chr(args: Vec<Value>) -> Result<Value, RuntimeError> {
 fn range_inner(_: Vec<Value>, data: Rc<RefCell<Vec<Value>>>, _: Rc<RefCell<Vec<CIterator>>>) -> Result<Value, RuntimeError> {
     const ZERO: Value = Value::Int(0);
     let mut d = data.borrow_mut();
-    if d[2] >= ZERO && d[0] >= d[1] {
-        Ok(Value::Nil)
-    } else if d[2] <= ZERO && d[0] <= d[1] {
+    if d[2] >= ZERO && d[0] >= d[1]
+    || d[2] <= ZERO && d[0] <= d[1] {
         Ok(Value::Nil)
     } else {
         let res = d[0].clone();
@@ -113,7 +112,7 @@ fn fn_range(args: Vec<Value>) -> Result<Value, RuntimeError> {
         },
         _ => return Err("Both arguments to range must be integers".into())
     };
-    return Ok(Value::Func(Func::BuiltinClosure { 
+    Ok(Value::Func(Func::BuiltinClosure { 
         arg_count: 0,
         data: Rc::new(RefCell::new(vec![start.clone(), end.clone(), Value::Int(delta)])),
         iter_data: Rc::new(RefCell::new(vec![])),
@@ -122,7 +121,7 @@ fn fn_range(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 fn fn_len(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    Ok(Value::Int(args[0].len().map_err(|e| RuntimeError::new_incomplete(e))? as i64))
+    Ok(Value::Int(args[0].len().map_err(RuntimeError::new_incomplete)? as i64))
 }
 
 fn fn_has(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -179,7 +178,7 @@ fn take_inner(_: Vec<Value>, data: Rc<RefCell<Vec<Value>>>, iter_data: Rc<RefCel
 }
 
 fn fn_take(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    return Ok(Value::Func(Func::BuiltinClosure { 
+    Ok(Value::Func(Func::BuiltinClosure { 
         arg_count: 0,
         data: Rc::new(RefCell::new(vec![Value::Int(0), args[0].clone()])),
         iter_data: Rc::new(RefCell::new(vec![args[1].iter()?])),

@@ -105,9 +105,9 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), Unwind> {
             let name = name.ty.clone().as_ident().unwrap();
             let func = Func::Func { 
                 name: Some(name.clone()),
-                args: args.into_iter().map(|a| a.ty.clone().as_ident().unwrap()).collect(),
+                args: args.iter().map(|a| a.ty.clone().as_ident().unwrap()).collect(),
                 env: env.clone(),
-                func: body.as_ref().clone()
+                func: Box::new(body.as_ref().clone())
             };
             env.borrow_mut().declare(name, Value::Func(func));
         },
@@ -173,9 +173,9 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
         Expr::Fn { args, body } => {
             let func = Func::Func { 
                 name: None,
-                args: args.into_iter().map(|a| a.ty.clone().as_ident().unwrap()).collect(),
-                env: env.clone(),
-                func: body.as_ref().clone()
+                args: args.iter().map(|a| a.ty.clone().as_ident().unwrap()).collect(),
+                env,
+                func: Box::new(body.as_ref().clone())
             };
             Ok(Value::Func(func))
         },
@@ -353,6 +353,7 @@ pub fn eval_pipeline(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<
     eval_pipeline_inner(l, r, op).map_err(|e| e.complete(op.pos.clone()))
 }
 
+#[allow(clippy::needless_collect)] // collect is necesary to allow for rev() call
 fn eval_pipeline_inner(l: Value, r: Value, op: &Token) -> Result<Value, RuntimeError> {
     match op.ty {
         TokenType::PipePoint => r.call(vec![l]),
