@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{value::Value, lexer::Lexer, parser::Parser, eval::{Environment, eval_stmt, eval_expr, EnvRef}, expr::Stmt, stdlib};
+use crate::{value::Value, lexer::Lexer, parser::Parser, eval::{eval_stmt, eval_expr}, expr::Stmt, stdlib, env::{EnvRef, Environment}};
 
 pub fn interpret(src: &str, fname: Option<String>, env: Option<EnvRef>, repl: bool) -> Result<Value, Box<dyn std::error::Error>> {
     let ctx_name = if repl { "<interactive input>" } else { fname.as_ref().map(|s| s.as_ref()).unwrap_or("<unknown>") };

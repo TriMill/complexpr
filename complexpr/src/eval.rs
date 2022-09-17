@@ -1,60 +1,9 @@
 use std::{collections::HashMap, rc::Rc, cell::RefCell};
 
-use num_traits::{Pow, Zero};
+use num_traits::Pow;
 
-use crate::{value::{Value, Complex, Func, Rational, CIterator}, expr::{Stmt, Expr}, token::{TokenType, Token, OpType}, RuntimeError, Position};
+use crate::{value::{Value, Complex, Func, CIterator}, expr::{Stmt, Expr}, token::{TokenType, Token, OpType}, RuntimeError, Position, env::{EnvRef, Environment}};
 
-#[derive(Debug)]
-pub struct Environment {
-    parent: Option<EnvRef>,
-    map: HashMap<Rc<str>, Value>,
-}
-
-pub type EnvRef = Rc<RefCell<Environment>>;
-
-impl Environment {
-    pub fn new() -> Self {
-        Self { parent: None, map: HashMap::new() }
-    }
-
-    pub fn wrap(self) -> EnvRef {
-        Rc::new(RefCell::new(self))
-    }
-
-    pub fn extend(parent: EnvRef) -> Self {
-        Self { parent: Some(parent), map: HashMap::new() }
-    }
-
-    pub fn get(&self, name: &str) -> Option<Value> {
-        match self.map.get(name) {
-            Some(v) => Some(v.clone()),
-            None => match self.parent {
-                Some(ref p) => p.borrow().get(name),
-                None => None
-            }
-        }
-    }
-
-    pub fn declare(&mut self, name: Rc<str>, value: Value) {
-        self.map.insert(name, value);
-    }
-
-    pub fn set(&mut self, name: Rc<str>, value: Value) -> Result<(),()> {
-        match self.map.contains_key(&name) {
-            true => { self.map.insert(name, value); Ok(()) },
-            false => match self.parent {
-                Some(ref mut p) => p.borrow_mut().set(name, value),
-                None => Err(())
-            }
-        }
-    }
-}
-
-impl Default for Environment {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 #[derive(Debug)]
 pub enum Unwind {
@@ -256,6 +205,19 @@ pub fn eval_ident(token: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
     }
 }
 
+fn compound_assignment_inner(l: Value, r: Value, op: &Token) -> Result<Value, RuntimeError> {
+    match op.ty {
+        TokenType::PlusEqual => &l + &r,
+        TokenType::MinusEqual => &l - &r,
+        TokenType::StarEqual => &l * &r,
+        TokenType::SlashEqual => &l / &r,
+        TokenType::PercentEqual => &l % &r,
+        TokenType::CaretEqual => l.pow(&r),
+        TokenType::DoubleSlashEqual => l.fracdiv(&r),
+        _ => todo!() // TODO more operations
+    }.map_err(|e| RuntimeError::new(e, op.pos.clone()))
+}
+
 pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
     // lhs must be an identifier (checked in parser)
     if let Expr::Ident{value: Token{ty: TokenType::Ident(name),..}} = lhs {
@@ -273,14 +235,7 @@ pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Resul
                 .ok_or_else(|| RuntimeError::new("Variable not defined in scope", op.pos.clone()))?;
             let r = eval_expr(rhs, env.clone())?;
 
-            let result = match op.ty {
-                TokenType::PlusEqual => &prev_value + &r,
-                TokenType::MinusEqual => &prev_value - &r,
-                TokenType::StarEqual => &prev_value * &r,
-                TokenType::SlashEqual => &prev_value / &r,
-                TokenType::PercentEqual => &prev_value % &r,
-                _ => todo!() // TODO more operations
-            }.map_err(|e| RuntimeError::new(e, op.pos.clone()))?;
+            let result = compound_assignment_inner(prev_value, r, op)?;
 
             env.borrow_mut()
                 .set(name.clone(), result.clone()).expect("unreachable");
@@ -296,14 +251,7 @@ pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Resul
         } else {
             let prev_value = l.index(&idx).map_err(|e| RuntimeError::new(e, pos.clone()))?;
             let r = eval_expr(rhs, env)?;
-            let result = match op.ty {
-                TokenType::PlusEqual => &prev_value + &r,
-                TokenType::MinusEqual => &prev_value - &r,
-                TokenType::StarEqual => &prev_value * &r,
-                TokenType::SlashEqual => &prev_value / &r,
-                TokenType::PercentEqual => &prev_value % &r,
-                _ => todo!() // TODO more operations
-            }.map_err(|e| RuntimeError::new(e, op.pos.clone()))?;
+            let result = compound_assignment_inner(prev_value, r, op)?;
             l.assign_index(&idx, result.clone()).map_err(|e| RuntimeError::new(e, pos.clone()))?;
             Ok(result)
         }
@@ -322,18 +270,8 @@ pub fn eval_arith(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Val
         TokenType::Slash => &l / &r,
         TokenType::Percent => &l % &r,
         TokenType::Caret => l.pow(&r),
-        TokenType::DoubleSlash => match (l, r) {
-            (Value::Int(_), Value::Int(b)) if b == 0 => Err("Integer division by zero".into()),
-            (Value::Rational(_), Value::Int(b)) if b == 0 => Err("Rational division by zero".into()),
-            (Value::Int(_), Value::Rational(b)) if b.is_zero() => Err("Rational division by zero".into()),
-            (Value::Rational(_), Value::Rational(b)) if b.is_zero() => Err("Rational division by zero".into()),
-            (Value::Int(a), Value::Int(b)) => Ok(Value::Rational(Rational::new(a, b))),
-            (Value::Rational(a), Value::Int(b)) => Ok(Value::from(a/b)),
-            (Value::Int(a), Value::Rational(b)) => Ok(Value::from(b.recip()*a)),
-            (Value::Rational(a), Value::Rational(b)) => Ok(Value::from(a/b)),
-            (x,y) => Err(format!("Unsupported operation 'fracdiv' between {:?} and {:?}", x, y))
-        },
-        _ => todo!() // TODO other operations
+        TokenType::DoubleSlash => l.fracdiv(&r),
+        _ => todo!()
     }.map_err(|e| RuntimeError::new(e, op.pos.clone()))
 }
 

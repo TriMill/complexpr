@@ -2,7 +2,7 @@ use std::{rc::Rc, io::Write, cmp::Ordering, time::{SystemTime, UNIX_EPOCH}, cell
 
 use num_traits::ToPrimitive;
 
-use crate::{value::{Value, Func, CIterator}, eval::Environment, RuntimeError};
+use crate::{value::{Value, Func, CIterator}, RuntimeError, env::Environment};
 
 pub fn load(env: &mut Environment) {
     let mut name: Rc<str>;

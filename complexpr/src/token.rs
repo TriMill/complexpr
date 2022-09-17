@@ -27,7 +27,7 @@ pub enum TokenType {
     Equal, PlusEqual, MinusEqual, StarEqual, SlashEqual, PercentEqual, DoubleSlashEqual, CaretEqual,
     DoubleEqual, BangEqual, Greater, GreaterEqual, Less, LessEqual, Spaceship,
 
-    Arrow, PipeColon, PipePoint, PipeQuestion, PipeAmper,
+    PipeColon, PipePoint, PipeQuestion, PipeAmper,
 
     Comma, Semicolon, Colon, 
 

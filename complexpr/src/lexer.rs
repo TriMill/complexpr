@@ -146,7 +146,6 @@ impl Lexer {
                 },
                 '-' => match self.expect(&['=', '>']) {
                     Some('=') => self.add_token(TokenType::MinusEqual, "-="),
-                    Some('>') => self.add_token(TokenType::Arrow, "->"),
                     _ => self.add_token(TokenType::Minus, "-"),
                 },
                 '*' => match self.expect(&['=']) {

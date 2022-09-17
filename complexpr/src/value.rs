@@ -2,7 +2,7 @@ use std::{rc::Rc, collections::HashMap, ops::*, fmt, cmp::Ordering, cell::RefCel
 
 use num_traits::{Zero, ToPrimitive, Pow};
 
-use crate::{RuntimeError, eval::{EnvRef, eval_stmt, Environment, Unwind, eval_expr}, expr::Stmt};
+use crate::{RuntimeError, eval::{eval_stmt, Unwind, eval_expr}, expr::Stmt, env::{EnvRef, Environment}};
 
 pub type Rational = num_rational::Ratio<i64>;
 pub type Complex = num_complex::Complex64;
@@ -231,24 +231,13 @@ impl Value {
     
     pub fn repr(&self) -> Rc<str> {
         match self {
-            Self::Nil => Rc::from("nil"),
-            Self::Bool(b) => Rc::from(b.to_string()),
-            Self::Int(n) => Rc::from(n.to_string()),
-            Self::Float(f) => Rc::from(f.to_string()),
-            Self::Rational(r) => Rc::from(r.to_string()),
-            Self::Complex(z) => Rc::from(z.to_string()),
+            Self::Float(f) => Rc::from(format!("{:?}",f)),
+            Self::Rational(r) => Rc::from(r.numer().to_string() + "//" + &r.denom().to_string()),
             Self::Char(c) => Rc::from(format!("'{}'", c)), // TODO escaping
             Self::String(s) => Rc::from(format!("\"{}\"", s)), // TODO escaping
             Self::List(l) => Rc::from(format!("{:?}", l.borrow())), // TODO fix
             Self::Map(m) => Rc::from(format!("{:?}", m)), // TODO fix
-            Self::Type(_) => todo!(),
-            Self::Func(Func::Builtin { name, func, .. }) => Rc::from(format!("<builtin fn {} at {:?}>", name, *func as *const ())),
-            Self::Func(Func::BuiltinClosure { func, .. }) => Rc::from(format!("<builtin anonymous fn at {:?}>", *func as *const ())),
-            Self::Func(Func::Func { name, .. }) => match name {
-                Some(name) => Rc::from(format!("<fn {}>", name)),
-                None => Rc::from("<anonymous fn>"),
-            },
-            Self::Data(_) => todo!(),
+            _ => self.to_string(),
         }
     }
 
@@ -298,6 +287,21 @@ impl Value {
             Value::List(l) => Ok(l.borrow().len()),
             Value::Map(m) => Ok(m.borrow().len()),
             v => Err(format!("{:?} has no length", v).into())
+        }
+    }
+
+    pub fn fracdiv(&self, other: &Value) -> Result<Value, String> {
+        use Value::*;
+        match (self, other) {
+            (Int(_), Int(b)) if *b == 0 => Err("Integer division by zero".into()),
+            (Rational(_), Int(b)) if *b == 0 => Err("Rational division by zero".into()),
+            (Int(_), Rational(b)) if b.is_zero() => Err("Rational division by zero".into()),
+            (Rational(_), Rational(b)) if b.is_zero() => Err("Rational division by zero".into()),
+            (Int(a), Int(b)) => Ok(Value::from(crate::value::Rational::new(*a, *b))),
+            (Rational(a), Int(b)) => Ok(Value::from(a/b)),
+            (Int(a), Rational(b)) => Ok(Value::from(b.recip()*a)),
+            (Rational(a), Rational(b)) => Ok(Value::from(a/b)),
+            (x,y) => Err(format!("Unsupported operation 'fracdiv' between {:?} and {:?}", x, y))
         }
     }
 }

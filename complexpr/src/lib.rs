@@ -7,6 +7,7 @@ pub mod parser;
 pub mod value;
 pub mod eval;
 pub mod interpreter;
+pub mod env;
 pub mod stdlib;
 
 #[derive(Clone, Debug)]
