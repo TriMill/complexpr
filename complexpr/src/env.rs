@@ -37,6 +37,7 @@ impl Environment {
         self.map.insert(name, value);
     }
 
+    #[allow(clippy::result_unit_err)]
     pub fn set(&mut self, name: Rc<str>, value: Value) -> Result<(),()> {
         match self.map.contains_key(&name) {
             true => { self.map.insert(name, value); Ok(()) },

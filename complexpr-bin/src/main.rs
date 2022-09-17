@@ -6,6 +6,7 @@ use rustyline::{self, error::ReadlineError};
 
 const C_RESET: &str = "\x1b[0m";
 const C_BLUE: &str = "\x1b[94m";
+const C_RED: &str = "\x1b[91m";
 const PROMPT: &str = "\x1b[94m>> \x1b[0m";
 
 fn panic_hook(info: &PanicInfo) {
@@ -32,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let src = fs::read_to_string(fname)?;
         let res = interpret(&src, Some(fname.into()), None, false);
         if let Err(e) = res {
-            println!("{}", e);
+            eprintln!("Error: {}", e);
         }
     } else {
         repl()?;
@@ -53,7 +54,7 @@ fn repl() -> Result<(), Box<dyn std::error::Error>> {
                 match result {
                     Ok(Value::Nil) => (),
                     Ok(value) => println!("{}", value.repr()),
-                    Err(e) => print!("{}", e)
+                    Err(e) => eprintln!("{}Error: {}{}", C_RED, C_RESET, e)
                 }
             }
             Err(ReadlineError::Eof) => break,

@@ -63,7 +63,11 @@ impl Lexer {
                 file: self.filename.clone(),
                 pos: self.start, 
                 line: self.line, 
-                col: self.col - (self.current - self.start) 
+                col: if self.col < (self.current - self.start) {
+                    0
+                } else {
+                    self.col - (self.current - self.start) 
+                }
             }
         });
     }
@@ -144,7 +148,7 @@ impl Lexer {
                     Some('=') => self.add_token(TokenType::PlusEqual, "+="),
                     _ => self.add_token(TokenType::Plus, "+"),
                 },
-                '-' => match self.expect(&['=', '>']) {
+                '-' => match self.expect(&['=']) {
                     Some('=') => self.add_token(TokenType::MinusEqual, "-="),
                     _ => self.add_token(TokenType::Minus, "-"),
                 },
@@ -198,12 +202,12 @@ impl Lexer {
                     Some('>') => self.add_token(TokenType::PipePoint, "|>"),
                     Some('&') => self.add_token(TokenType::PipeAmper, "|&"),
                     Some('/') => match self.expect(&['/']) {
-                        Some(_) => self.add_token(TokenType::PipeDoubleSlash, "|//"),
-                        None => self.add_token(TokenType::PipeSlash, "|/")
+                        Some('/') => self.add_token(TokenType::PipeDoubleSlash, "|//"),
+                        _ => self.add_token(TokenType::PipeSlash, "|/")
                     },
                     Some('\\') => match self.expect(&['\\']) {
-                        Some(_) => self.add_token(TokenType::PipeDoubleBackslash, "|\\\\"),
-                        None => self.add_token(TokenType::PipeBackslash, "|\\")
+                        Some('\\') => self.add_token(TokenType::PipeDoubleBackslash, "|\\\\"),
+                        _ => self.add_token(TokenType::PipeBackslash, "|\\")
                     },
                     _ => self.add_token(TokenType::Pipe, "|"),
                 },

@@ -108,9 +108,17 @@ impl Func {
                     filled_args.append(&mut arg_values);
                     inner.call(filled_args)
                 }
-            }
-            Ordering::Less => {
-                Ok(Value::Func(Func::Partial { inner: Box::new(self.clone()), filled_args: arg_values }))
+            },
+            Ordering::Less if arg_values.is_empty() => Err(RuntimeError::new_incomplete(
+                format!("Cannot call this function with zero arguments: expected {}", self.arg_count())
+            )),
+            Ordering::Less => match self {
+                Self::Partial { inner, filled_args } => {
+                    let mut args = filled_args.clone();
+                    args.append(&mut arg_values);
+                    Ok(Value::Func(Func::Partial { inner: inner.clone(), filled_args: args }))
+                }
+                f => Ok(Value::Func(Func::Partial { inner: Box::new(f.clone()), filled_args: arg_values }))
             },
             Ordering::Greater => Err(RuntimeError::new_incomplete(
                 format!("Too many arguments for function: expected {}, got {}", self.arg_count(), arg_values.len())
@@ -322,6 +330,10 @@ impl Value {
             Value::Map(m) => Ok(m.borrow().len()),
             v => Err(format!("{:?} has no length", v))
         }
+    }
+    
+    pub fn is_empty(&self) -> Result<bool, String> {
+        Ok(self.len()? == 0)
     }
 
     pub fn fracdiv(&self, other: &Value) -> Result<Value, String> {

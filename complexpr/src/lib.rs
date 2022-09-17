@@ -91,7 +91,7 @@ impl From<&str> for RuntimeError {
 
 impl fmt::Display for ParserError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Error: {}\n    In {} at {},{}\n", 
+        write!(f, "{}\n    In {} at {},{}", 
             self.message, 
             self.pos.file.as_ref().map(|o| o.as_ref()).unwrap_or("<unknown>"), 
             self.pos.line, 
@@ -102,9 +102,9 @@ impl fmt::Display for ParserError {
 
 impl fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Error: {}", self.message)?;
+        writeln!(f, "{}", self.message)?;
         for frame in &self.stacktrace {
-            writeln!(f, "    In {} at {}:{}:{}", 
+            write!(f, "\n    In {} at {}:{}:{}", 
                 frame.fn_name.as_ref().map(|o| o.as_ref()).unwrap_or("<anonymous fn>"),
                 frame.pos.file.as_ref().map(|o| o.as_ref()).unwrap_or("<unknown>"),
                 frame.pos.line,

@@ -138,7 +138,7 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
                 => eval_pipeline(lhs, rhs, op, env),
             o => todo!("{:?}", o) // TODO other operations
         },
-        Expr::Ternary { .. } => todo!(),
+        Expr::Ternary { arg1, arg2, arg3, op } => eval_ternary(arg1, arg2, arg3, op, env),
         Expr::Unary { arg, op } => eval_unary(arg, op, env),
         Expr::List { items } => {
             let mut list = Vec::with_capacity(items.len());
@@ -200,7 +200,7 @@ pub fn eval_ident(token: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
     if let Token { ty: TokenType::Ident(name), ..} = token {
         env.borrow_mut()
             .get(name)
-            .ok_or_else(|| RuntimeError::new("Variable not defined in scope", token.pos.clone()))
+            .ok_or_else(|| RuntimeError::new(format!("Variable {} not defined in scope", name), token.pos.clone()))
     } else { 
         unreachable!() 
     }
@@ -405,6 +405,34 @@ fn eval_pipeline_inner(l: Value, r: Value, op: &Token) -> Result<Value, RuntimeE
         _ => todo!()
     }
 
+}
+
+#[allow(clippy::needless_collect)] // collect is necesary to allow for rev() call
+pub fn eval_ternary(arg1: &Expr, arg2: &Expr, arg3: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
+    match op.ty {
+        TokenType::PipeSlash => {
+            let iter = eval_expr(arg1, env.clone())?;
+            let mut result = eval_expr(arg2, env.clone())?;
+            let func = eval_expr(arg3, env)?;
+            for v in iter.iter().map_err(|e| RuntimeError::new(e, op.pos.clone()))? {
+                let v = v.map_err(|e| e.complete(op.pos.clone()))?;
+                result = func.call(vec![result, v]).map_err(|e| e.complete(op.pos.clone()))?;
+            }
+            Ok(result)
+        },
+        TokenType::PipeBackslash => {
+            let iter = eval_expr(arg1, env.clone())?;
+            let mut result = eval_expr(arg2, env.clone())?;
+            let func = eval_expr(arg3, env)?;
+            let lst = iter.iter().map_err(|e| RuntimeError::new(e, op.pos.clone()))?.collect::<Vec<Result<Value, RuntimeError>>>();
+            for v in lst.into_iter().rev() {
+                let v = v.map_err(|e| e.complete(op.pos.clone()))?;
+                result = func.call(vec![v, result]).map_err(|e| e.complete(op.pos.clone()))?;
+            }
+            Ok(result)
+        },
+        _ => unreachable!()
+    }
 }
 
 pub fn eval_unary(arg: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {

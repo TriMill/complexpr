@@ -277,6 +277,7 @@ impl Parser {
             let op = self.next();
             let right = self.logical_or()?;
             if op.ty == TokenType::PipeSlash || op.ty == TokenType::PipeBackslash {
+                self.err_on_eof()?;
                 let next = self.next();
                 if next.ty != TokenType::Comma {
                     return Err(self.mk_error("Expected comma after first argument"))

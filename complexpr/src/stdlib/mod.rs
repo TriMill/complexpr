@@ -36,6 +36,16 @@ pub fn load(env: &mut Environment) {
     env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_list, arg_count: 1, name }));
     name = Rc::from("take"); 
     env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_take, arg_count: 2, name }));
+    name = Rc::from("skip"); 
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_skip, arg_count: 2, name }));
+    name = Rc::from("forall"); 
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_forall, arg_count: 2, name }));
+    name = Rc::from("exists"); 
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_exists, arg_count: 2, name }));
+    name = Rc::from("min"); 
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_min, arg_count: 2, name }));
+    name = Rc::from("max"); 
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_max, arg_count: 2, name }));
 }
 
 fn fn_str(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -184,4 +194,72 @@ fn fn_take(args: Vec<Value>) -> Result<Value, RuntimeError> {
         iter_data: Rc::new(RefCell::new(vec![args[1].iter()?])),
         func: take_inner
     }))
+}
+
+fn skip_inner(_: Vec<Value>, data: Rc<RefCell<Vec<Value>>>, iter_data: Rc<RefCell<Vec<CIterator>>>) -> Result<Value, RuntimeError> {
+    let mut d = if let Value::Int(d) = data.borrow()[0] { d } else {
+        unreachable!() // checked by fn_skip()
+    };
+    while d > 0 {
+        iter_data.borrow_mut()[0].next();
+        d -= 1;
+    }
+    data.borrow_mut()[0] = Value::Int(d);
+    match iter_data.borrow_mut()[0].next() {
+        None => Ok(Value::Nil),
+        Some(x) => x
+    }
+}
+
+fn fn_skip(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    let n = match args[0] {
+        Value::Int(n) if n <= 0 => return Err(RuntimeError::new_incomplete("First argument to skip must be nonnegative")),
+        Value::Int(n) => n,
+        _ => return Err(RuntimeError::new_incomplete("First argument to skip must be an integer"))
+    };
+    let it = args[1].iter()?;
+    Ok(Value::Func(Func::BuiltinClosure {
+        arg_count: 0,
+        data: Rc::new(RefCell::new(vec![Value::Int(n)])),
+        iter_data: Rc::new(RefCell::new(vec![it])),
+        func: skip_inner
+    }))
+}
+
+fn fn_forall(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    let func = &args[0];
+    for item in args[1].iter()? {
+        let item = item?;
+        if !func.call(vec![item])?.truthy() {
+            return Ok(Value::Bool(false))
+        }
+    }
+    Ok(Value::Bool(true))
+}
+
+fn fn_exists(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    let func = &args[0];
+    for item in args[1].iter()? {
+        let item = item?;
+        if func.call(vec![item])?.truthy() {
+            return Ok(Value::Bool(true))
+        }
+    }
+    Ok(Value::Bool(false))
+}
+
+fn fn_min(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match args[0].partial_cmp(&args[1]) {
+        None => Err("Arguments to min must be comparable".into()),
+        Some(Ordering::Greater) => Ok(args[1].clone()),
+        _ => Ok(args[0].clone())
+    }
+}
+
+fn fn_max(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match args[0].partial_cmp(&args[1]) {
+        None => Err("Arguments to max must be comparable".into()),
+        Some(Ordering::Less) => Ok(args[1].clone()),
+        _ => Ok(args[0].clone())
+    }
 }
