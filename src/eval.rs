@@ -411,7 +411,12 @@ fn pipequestion_inner(_: Vec<Value>, data: Rc<RefCell<Vec<Value>>>, iter_data: R
 pub fn eval_pipeline(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
     let l = eval_expr(lhs, env.clone())?;
     let r = eval_expr(rhs, env)?;
+    eval_pipeline_inner(l, r, op).map_err(|e| e.complete(op.pos.clone()))
+}
+
+fn eval_pipeline_inner(l: Value, r: Value, op: &Token) -> Result<Value, RuntimeError> {
     match op.ty {
+        TokenType::PipePoint => r.call(vec![l]),
         TokenType::PipeColon => {
             Ok(Value::Func(Func::BuiltinClosure {
                 arg_count: 0,
@@ -430,6 +435,7 @@ pub fn eval_pipeline(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<
         },
         _ => todo!()
     }
+
 }
 
 pub fn eval_unary(arg: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
