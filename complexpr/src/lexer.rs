@@ -191,12 +191,20 @@ impl Lexer {
                     Some('&') => self.add_token(TokenType::DoubleAmper, "&&"),
                     _ => self.add_token(TokenType::Amper, "&"),
                 },
-                '|' => match self.expect(&['|', ':', '?', '>', '&']) {
+                '|' => match self.expect(&['|', ':', '?', '>', '&', '/', '\\']) {
                     Some('|') => self.add_token(TokenType::DoublePipe, "||"),
                     Some(':') => self.add_token(TokenType::PipeColon, "|:"),
                     Some('?') => self.add_token(TokenType::PipeQuestion, "|?"),
                     Some('>') => self.add_token(TokenType::PipePoint, "|>"),
                     Some('&') => self.add_token(TokenType::PipeAmper, "|&"),
+                    Some('/') => match self.expect(&['/']) {
+                        Some(_) => self.add_token(TokenType::PipeDoubleSlash, "|//"),
+                        None => self.add_token(TokenType::PipeSlash, "|/")
+                    },
+                    Some('\\') => match self.expect(&['\\']) {
+                        Some(_) => self.add_token(TokenType::PipeDoubleBackslash, "|\\\\"),
+                        None => self.add_token(TokenType::PipeBackslash, "|\\")
+                    },
                     _ => self.add_token(TokenType::Pipe, "|"),
                 },
                 ',' => self.add_token(TokenType::Comma, ","),
@@ -208,12 +216,30 @@ impl Lexer {
                 ']' => self.add_token(TokenType::RBrack, "]"),
                 '{' => self.add_token(TokenType::LBrace, "{"),
                 '}' => self.add_token(TokenType::RBrace, "}"),
-                '#' => {
-                    while !self.at_end() && self.peek() != '\n' {
-                        self.advance(false);
-                    }
-                    self.advance(true);
-                },
+                '#' => match self.expect(&['{']) {
+                    Some(_) => {
+                        while !self.at_end() {
+                            if self.peek() == '}' {
+                                self.advance(false);
+                                if self.at_end() { break }
+                                if self.peek() == '#' {
+                                    break
+                                }
+                            }
+                            self.advance(false);
+                        }
+                        if self.at_end() {
+                            return Err(self.mk_error("Unexpected EOF in block comment"))
+                        }
+                        self.advance(true);
+                    },
+                    None => {
+                        while !self.at_end() && self.peek() != '\n' {
+                            self.advance(false);
+                        }
+                        self.advance(true);
+                    },
+                }
                 '"' => self.string()?,
                 '\'' => self.char()?,
                 ' ' | '\t' | '\r' | '\n' => (),

@@ -1,0 +1,1 @@
+let s="let s=;let p=print;for n:range(0,6){p(s[n]);}p(chr(34)+s+chr(34));for n:range(6,105){p(s[n]);}p(chr(10));";let p=print;for n:range(0,6){p(s[n]);}p(chr(34)+s+chr(34));for n:range(6,105){p(s[n]);}p(chr(10));

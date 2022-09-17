@@ -11,12 +11,14 @@ fn count_by(delta, limit) {
     };
 }
 
-# counter is an iterator
-# iterators are functions that:
-#  - take no arguments
-#  - return nil once done
-#  - once returned nil once, must do so for all subsequent calls
-# the interpreter only checks the first requirement
+#{
+  counter is an iterator
+  iterators are functions that:
+   - take no arguments
+   - return nil once done
+   - once returned nil once, must do so for all subsequent calls
+  the interpreter only checks the first requirement
+}#
 let counter = count_by(2, 5);
 println(counter()); # 0
 println(counter()); # 2

@@ -34,6 +34,8 @@ pub fn load(env: &mut Environment) {
     env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_time, arg_count: 0, name }));
     name = Rc::from("list"); 
     env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_list, arg_count: 1, name }));
+    name = Rc::from("take"); 
+    env.declare(name.clone(), Value::Func(Func::Builtin { func: fn_take, arg_count: 2, name }));
 }
 
 fn fn_str(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -159,4 +161,28 @@ fn fn_list(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let mut res = Vec::new();
     for v in a { res.push(v?); }
     Ok(Value::from(res))
+}
+
+fn take_inner(_: Vec<Value>, data: Rc<RefCell<Vec<Value>>>, iter_data: Rc<RefCell<Vec<CIterator>>>) -> Result<Value, RuntimeError> {
+    // 0: current index
+    // 1: target index
+    let mut d = data.borrow_mut();
+    if d[0] >= d[1] {
+        Ok(Value::Nil)
+    } else {
+        d[0] = (&d[0] + &Value::Int(1))?;
+        match iter_data.borrow_mut()[0].next() {
+            None => Ok(Value::Nil),
+            Some(x) => x
+        }
+    }
+}
+
+fn fn_take(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    return Ok(Value::Func(Func::BuiltinClosure { 
+        arg_count: 0,
+        data: Rc::new(RefCell::new(vec![Value::Int(0), args[0].clone()])),
+        iter_data: Rc::new(RefCell::new(vec![args[1].iter()?])),
+        func: take_inner
+    }))
 }

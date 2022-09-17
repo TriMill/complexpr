@@ -36,6 +36,7 @@ impl fmt::Debug for Stmt {
 #[derive(Clone)]
 pub enum Expr {
     Binary { lhs: Box<Expr>, rhs: Box<Expr>, op: Token },
+    Ternary { arg1: Box<Expr>, arg2: Box<Expr>, arg3: Box<Expr>, op: Token },
     Unary { arg: Box<Expr>, op: Token },
     Ident { value: Token },
     Literal { value: Token },
@@ -50,6 +51,7 @@ impl fmt::Debug for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Binary { lhs: left, rhs: right, op} => write!(f, "({:?} {:?} {:?})", op, left, right),
+            Self::Ternary { arg1, arg2, arg3, op} => write!(f, "({:?} {:?} {:?} {:?})", op, arg1, arg2, arg3),
             Self::Unary { arg, op } => write!(f, "({:?} {:?})", op, arg),
             Self::Ident { value } => write!(f, "(ident {:?})", value),
             Self::Literal { value } => write!(f, "(lit {:?})", value),

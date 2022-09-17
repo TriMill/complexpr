@@ -130,7 +130,7 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
                 => eval_assignment(lhs, rhs, op, env),
             Some(OpType::Additive) | Some(OpType::Multiplicative) | Some(OpType::Exponential)
                 => eval_arith(lhs, rhs, op, env),
-            Some(OpType::Boolean) 
+            Some(OpType::LogicalAnd) | Some(OpType::LogicalOr)
                 => eval_boolean(lhs, rhs, op, env),
             Some(OpType::Comparison)
                 => eval_comp(lhs, rhs, op, env),
@@ -138,6 +138,7 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
                 => eval_pipeline(lhs, rhs, op, env),
             o => todo!("{:?}", o) // TODO other operations
         },
+        Expr::Ternary { .. } => todo!(),
         Expr::Unary { arg, op } => eval_unary(arg, op, env),
         Expr::List { items } => {
             let mut list = Vec::with_capacity(items.len());
@@ -225,9 +226,9 @@ pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Resul
             // plain assignment
             let r = eval_expr(rhs, env.clone())?;
             env.borrow_mut()
-                .set(name.clone(), r)
+                .set(name.clone(), r.clone())
                 .map_err(|_| RuntimeError::new("Variable not declared before assignment", op.pos.clone()))?;
-            Ok(Value::Nil)
+            Ok(r)
         } else {
             // compound assignment
             let prev_value = env.borrow_mut()
@@ -370,6 +371,35 @@ fn eval_pipeline_inner(l: Value, r: Value, op: &Token) -> Result<Value, RuntimeE
                 iter_data: Rc::new(RefCell::new(vec![l.iter()?])),
                 func: pipequestion_inner,
             }))
+        },
+        TokenType::PipeDoubleSlash => {
+            let mut result = Value::Nil;
+            let mut first_iter = true;
+            for v in l.iter().map_err(|e| RuntimeError::new(e, op.pos.clone()))? {
+                let v = v.map_err(|e| e.complete(op.pos.clone()))?;
+                if first_iter {
+                    result = v;
+                    first_iter = false;
+                } else {
+                    result = r.call(vec![result, v]).map_err(|e| e.complete(op.pos.clone()))?;
+                }
+            }
+            Ok(result)
+        },
+        TokenType::PipeDoubleBackslash => {
+            let mut result = Value::Nil;
+            let mut first_iter = true;
+            let lst = l.iter().map_err(|e| RuntimeError::new(e, op.pos.clone()))?.collect::<Vec<Result<Value, RuntimeError>>>();
+            for v in lst.into_iter().rev() {
+                let v = v.map_err(|e| e.complete(op.pos.clone()))?;
+                if first_iter {
+                    result = v;
+                    first_iter = false;
+                } else {
+                    result = r.call(vec![v, result]).map_err(|e| e.complete(op.pos.clone()))?;
+                }
+            }
+            Ok(result)
         },
         _ => todo!()
     }

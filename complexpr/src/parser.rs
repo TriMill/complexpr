@@ -272,11 +272,30 @@ impl Parser {
     }
 
     fn pipeline(&mut self) -> Result<Expr, ParserError> {
-        self.expr(OpType::Pipeline, Self::boolean)
+        let mut expr = self.logical_or()?;
+        while !self.at_end() && self.peek().ty.get_op_type() == Some(OpType::Pipeline) {
+            let op = self.next();
+            let right = self.logical_or()?;
+            if op.ty == TokenType::PipeSlash || op.ty == TokenType::PipeBackslash {
+                let next = self.next();
+                if next.ty != TokenType::Comma {
+                    return Err(self.mk_error("Expected comma after first argument"))
+                }
+                let right2 = self.logical_or()?;
+                expr = Expr::Ternary { arg1: Box::new(expr), arg2: Box::new(right), arg3: Box::new(right2), op }
+            } else {
+                expr = Expr::Binary { lhs: Box::new(expr), rhs: Box::new(right), op };
+            }
+        }
+        Ok(expr)
     }
 
-    fn boolean(&mut self) -> Result<Expr, ParserError> {
-        self.expr(OpType::Boolean, Self::comparison)
+    fn logical_or(&mut self) -> Result<Expr, ParserError> {
+        self.expr(OpType::LogicalOr, Self::logical_and)
+    }
+
+    fn logical_and(&mut self) -> Result<Expr, ParserError> {
+        self.expr(OpType::LogicalAnd, Self::comparison)
     }
 
     fn comparison(&mut self) -> Result<Expr, ParserError> {
@@ -339,7 +358,7 @@ impl Parser {
         let index = self.assignment()?;
         self.err_on_eof()?;
         if self.next().ty != TokenType::RBrack {
-            return Err(ParserError { message: "Expected RBrack after collection index".into(), pos: lbrack.pos });
+            return Err(self.mk_error("Expected RBrack after collection index"))
         }
         Ok(Expr::Index { lhs: Box::new(expr), index: Box::new(index), pos: lbrack.pos })
     }
@@ -349,7 +368,7 @@ impl Parser {
         self.err_on_eof()?;
         let next = self.next();
         if next.ty != TokenType::Colon {
-            return Err(ParserError { message: "Expected colon in key-value pair".into(), pos: next.pos })
+            return Err(self.mk_error("Expected colon in key-value pair"))
         }
         self.err_on_eof()?;
         let value = self.assignment()?;
@@ -384,7 +403,7 @@ impl Parser {
             self.err_on_eof()?;
             let next = self.next();
             if let TokenType::LParen = next.ty {} else {
-                return Err(ParserError { message: "Expected left parenthesis to start arguments list".into(), pos: next.pos })
+                return Err(self.mk_error("Expected left parenthesis to start arguments list"))
             }
             let args = self.commalist(TokenType::RParen, Self::ident)?;
             self.err_on_eof()?;

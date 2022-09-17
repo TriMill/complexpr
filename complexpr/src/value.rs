@@ -25,6 +25,10 @@ pub enum Func {
         data: Rc<RefCell<Vec<Value>>>,
         iter_data: Rc<RefCell<Vec<CIterator>>>,
         arg_count: usize,
+    },
+    Partial {
+        inner: Box<Func>,
+        filled_args: Vec<Value>,
     }
 }
 
@@ -46,6 +50,11 @@ impl fmt::Debug for Func {
                     .field("arg_count", arg_count)
                     .field("data", data)
                     .finish_non_exhaustive(),
+            Self::Partial { inner, filled_args } 
+                => f.debug_struct("Func::Partial") 
+                    .field("inner", inner)
+                    .field("filled_args", filled_args)
+                    .finish(),
         }
     }
     
@@ -57,10 +66,20 @@ impl Func {
             Self::Builtin { arg_count, .. } => *arg_count,
             Self::BuiltinClosure { arg_count, .. } => *arg_count,
             Self::Func { args, .. } => args.len(),
+            Self::Partial { inner, filled_args } => inner.arg_count() - filled_args.len(),
         }
     }
 
-    pub fn call(&self, arg_values: Vec<Value>) -> Result<Value, RuntimeError> {
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Self::Builtin { name, .. } => Some(name.as_ref()),
+            Self::BuiltinClosure { .. } => None,
+            Self::Func { name, .. } => name.as_ref().map(|s| s.as_ref()),
+            Self::Partial { inner, .. } => inner.name()
+        }
+    }
+
+    pub fn call(&self, mut arg_values: Vec<Value>) -> Result<Value, RuntimeError> {
         match arg_values.len().cmp(&self.arg_count()) {
             Ordering::Equal => match self {
                 Self::Builtin { func, .. } 
@@ -81,11 +100,16 @@ impl Func {
                         }
 
                     }
+                },
+                Self::Partial { inner, filled_args } => {
+                    let mut filled_args = filled_args.clone();
+                    filled_args.append(&mut arg_values);
+                    inner.call(filled_args)
                 }
             }
-            Ordering::Less => Err(RuntimeError::new_incomplete(
-                format!("Not enough arguments for function: expected {}, got {}", self.arg_count(), arg_values.len())
-            )),
+            Ordering::Less => {
+                Ok(Value::Func(Func::Partial { inner: Box::new(self.clone()), filled_args: arg_values }))
+            },
             Ordering::Greater => Err(RuntimeError::new_incomplete(
                 format!("Too many arguments for function: expected {}, got {}", self.arg_count(), arg_values.len())
             ))
@@ -108,6 +132,10 @@ impl Hash for Func {
             Self::BuiltinClosure { arg_count, data, .. } => {
                 arg_count.hash(state);
                 data.borrow().hash(state);
+            },
+            Self::Partial { inner, filled_args } => {
+                filled_args.hash(state);
+                inner.hash(state);
             }
         }
     }
@@ -221,6 +249,10 @@ impl Value {
             Self::Type(_) => todo!(),
             Self::Func(Func::Builtin { name, func, .. }) => Rc::from(format!("<builtin fn {} at {:?}>", name, *func as *const ())),
             Self::Func(Func::BuiltinClosure { func, .. }) => Rc::from(format!("<builtin anonymous fn at {:?}>", *func as *const ())),
+            Self::Func(f @ Func::Partial { .. }) => match f.name() {
+                Some(name) => Rc::from(format!("<partial of fn {}>", name)),
+                None => Rc::from("<partial of anonymous fn>"),
+            }
             Self::Func(Func::Func { name, .. }) => match name {
                 Some(name) => Rc::from(format!("<fn {}>", name)),
                 None => Rc::from("<anonymous fn>"),
