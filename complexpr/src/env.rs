@@ -47,6 +47,10 @@ impl Environment {
             }
         }
     }
+
+    pub fn items(&self) -> &HashMap<Rc<str>, Value> {
+        &self.map
+    }
 }
 
 impl Default for Environment {

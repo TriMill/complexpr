@@ -72,11 +72,11 @@ impl Func {
         }
     }
 
-    pub fn name(&self) -> Option<&str> {
+    pub fn name(&self) -> Option<Rc<str>> {
         match self {
-            Self::Builtin { name, .. } => Some(name.as_ref()),
+            Self::Builtin { name, .. } => Some(name.clone()),
             Self::BuiltinClosure { .. } => None,
-            Self::Func { name, .. } => name.as_ref().map(|s| s.as_ref()),
+            Self::Func { name, .. } => name.clone(),
             Self::Partial { inner, .. } => inner.name()
         }
     }
@@ -109,7 +109,7 @@ impl Func {
                     inner.call(filled_args)
                 }
             },
-            Ordering::Less if arg_values.is_empty() => Err(RuntimeError::new_incomplete(
+            Ordering::Less if arg_values.is_empty() => Err(RuntimeError::new_no_pos(
                 format!("Cannot call this function with zero arguments: expected {}", self.arg_count())
             )),
             Ordering::Less => match self {
@@ -120,7 +120,7 @@ impl Func {
                 }
                 f => Ok(Value::Func(Func::Partial { inner: Box::new(f.clone()), filled_args: arg_values }))
             },
-            Ordering::Greater => Err(RuntimeError::new_incomplete(
+            Ordering::Greater => Err(RuntimeError::new_no_pos(
                 format!("Too many arguments for function: expected {}, got {}", self.arg_count(), arg_values.len())
             ))
         }
@@ -236,11 +236,10 @@ impl Value {
         }
     }
 
-    pub fn call(&self, args: Vec<Value>) -> Result<Value, RuntimeError> {
-        if let Value::Func(f) = self {
-            f.call(args)
-        } else {
-            Err(RuntimeError::new_incomplete("Cannot call"))           
+    pub fn as_func(&self) -> Result<&Func, String> {
+        match self {
+            Value::Func(f) => Ok(f),
+            v => Err(format!("{:?} is not a function", v))
         }
     }
 

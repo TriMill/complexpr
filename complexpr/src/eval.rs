@@ -4,6 +4,12 @@ use num_traits::Pow;
 
 use crate::{value::{Value, Complex, Func, CIterator}, expr::{Stmt, Expr}, token::{TokenType, Token, OpType}, RuntimeError, Position, env::{EnvRef, Environment}};
 
+thread_local!(static PIPE_NAME: Option<Rc<str>> = Some(Rc::from("<pipeline>")));
+thread_local!(static FORLOOP_NAME: Option<Rc<str>> = Some(Rc::from("<for loop>")));
+fn exit_pipe(pos: &Position) -> impl FnOnce(RuntimeError) -> RuntimeError + '_ {
+    |e: RuntimeError| e.exit_fn(PIPE_NAME.with(|x| x.clone()), pos.clone())
+}
+
 
 #[derive(Debug)]
 pub enum Unwind {
@@ -75,7 +81,7 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), Unwind> {
             }
             if let Ok(i) = iterator {
                 for v in i {
-                    let v = v.map_err(|e| e.complete(iter_pos.clone()))?;
+                    let v = v.map_err(|e| e.exit_fn(FORLOOP_NAME.with(|x| x.clone()), iter_pos.clone()))?;
                     let env = env.clone();
                     env.borrow_mut().set(name.clone(), v).expect("unreachable");
                     match eval_stmt(stmt, env) {
@@ -157,13 +163,15 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
             Ok(Value::from(map))
         },
         Expr::FuncCall { func, args, pos } => {
-            let func = eval_expr(func, env.clone())?;
+            let lhs = eval_expr(func, env.clone())?;
             let mut arg_values = Vec::with_capacity(args.len());
             for arg in args {
                 let result = eval_expr(arg, env.clone())?;
                 arg_values.push(result);
             }
-            func.call(arg_values).map_err(|e| e.complete(pos.clone()))
+            let func = lhs.as_func()
+                .map_err(|e| RuntimeError::new(e, pos.clone()))?;
+            func.call(arg_values).map_err(|e| e.exit_fn(func.name(), pos.clone()))
         },
         Expr::Index { lhs, index, pos } => {
             let l = eval_expr(lhs, env.clone())?;
@@ -325,7 +333,8 @@ pub fn eval_comp(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Valu
 fn pipecolon_inner(_: Vec<Value>, data: Rc<RefCell<Vec<Value>>>, iter_data: Rc<RefCell<Vec<CIterator>>>) -> Result<Value, RuntimeError> {
     let f = &data.borrow()[0];
     if let Some(next) = iter_data.borrow_mut()[0].next() {
-        f.call(vec![next?])
+        let func = f.as_func()?;
+        func.call(vec![next?])
     } else {
         Ok(Value::Nil)
     }
@@ -337,7 +346,8 @@ fn pipequestion_inner(_: Vec<Value>, data: Rc<RefCell<Vec<Value>>>, iter_data: R
         let next = iter_data.borrow_mut()[0].next();
         if let Some(next) = next {
             let next = next?;
-            let success = f.call(vec![next.clone()])?.truthy();
+            let func = f.as_func()?;
+            let success = func.call(vec![next.clone()])?.truthy();
             if success {
                 return Ok(next)
             }
@@ -347,20 +357,22 @@ fn pipequestion_inner(_: Vec<Value>, data: Rc<RefCell<Vec<Value>>>, iter_data: R
     }
 }
 
+
 pub fn eval_pipeline(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
     let l = eval_expr(lhs, env.clone())?;
     let r = eval_expr(rhs, env)?;
-    eval_pipeline_inner(l, r, op).map_err(|e| e.complete(op.pos.clone()))
+    let f = r.as_func().map_err(|e| RuntimeError::new(e, op.pos.clone()))?;
+    eval_pipeline_inner(l, f, op).map_err(exit_pipe(&op.pos))
 }
 
 #[allow(clippy::needless_collect)] // collect is necesary to allow for rev() call
-fn eval_pipeline_inner(l: Value, r: Value, op: &Token) -> Result<Value, RuntimeError> {
+fn eval_pipeline_inner(l: Value, r: &Func, op: &Token) -> Result<Value, RuntimeError> {
     match op.ty {
         TokenType::PipePoint => r.call(vec![l]),
         TokenType::PipeColon => {
             Ok(Value::Func(Func::BuiltinClosure {
                 arg_count: 0,
-                data: Rc::new(RefCell::new(vec![r])),
+                data: Rc::new(RefCell::new(vec![Value::Func(r.clone())])),
                 iter_data: Rc::new(RefCell::new(vec![l.iter()?])),
                 func: pipecolon_inner,
             }))
@@ -368,7 +380,7 @@ fn eval_pipeline_inner(l: Value, r: Value, op: &Token) -> Result<Value, RuntimeE
         TokenType::PipeQuestion => {
             Ok(Value::Func(Func::BuiltinClosure {
                 arg_count: 0,
-                data: Rc::new(RefCell::new(vec![r])),
+                data: Rc::new(RefCell::new(vec![Value::Func(r.clone())])),
                 iter_data: Rc::new(RefCell::new(vec![l.iter()?])),
                 func: pipequestion_inner,
             }))
@@ -377,12 +389,12 @@ fn eval_pipeline_inner(l: Value, r: Value, op: &Token) -> Result<Value, RuntimeE
             let mut result = Value::Nil;
             let mut first_iter = true;
             for v in l.iter().map_err(|e| RuntimeError::new(e, op.pos.clone()))? {
-                let v = v.map_err(|e| e.complete(op.pos.clone()))?;
+                let v = v.map_err(exit_pipe(&op.pos))?;
                 if first_iter {
                     result = v;
                     first_iter = false;
                 } else {
-                    result = r.call(vec![result, v]).map_err(|e| e.complete(op.pos.clone()))?;
+                    result = r.call(vec![result, v]).map_err(exit_pipe(&op.pos))?;
                 }
             }
             Ok(result)
@@ -392,12 +404,12 @@ fn eval_pipeline_inner(l: Value, r: Value, op: &Token) -> Result<Value, RuntimeE
             let mut first_iter = true;
             let lst = l.iter().map_err(|e| RuntimeError::new(e, op.pos.clone()))?.collect::<Vec<Result<Value, RuntimeError>>>();
             for v in lst.into_iter().rev() {
-                let v = v.map_err(|e| e.complete(op.pos.clone()))?;
+                let v = v.map_err(exit_pipe(&op.pos))?;
                 if first_iter {
                     result = v;
                     first_iter = false;
                 } else {
-                    result = r.call(vec![v, result]).map_err(|e| e.complete(op.pos.clone()))?;
+                    result = r.call(vec![v, result]).map_err(exit_pipe(&op.pos))?;
                 }
             }
             Ok(result)
@@ -414,9 +426,11 @@ pub fn eval_ternary(arg1: &Expr, arg2: &Expr, arg3: &Expr, op: &Token, env: EnvR
             let iter = eval_expr(arg1, env.clone())?;
             let mut result = eval_expr(arg2, env.clone())?;
             let func = eval_expr(arg3, env)?;
+            let func = func.as_func()
+                .map_err(|e| RuntimeError::new(e, op.pos.clone()))?;
             for v in iter.iter().map_err(|e| RuntimeError::new(e, op.pos.clone()))? {
-                let v = v.map_err(|e| e.complete(op.pos.clone()))?;
-                result = func.call(vec![result, v]).map_err(|e| e.complete(op.pos.clone()))?;
+                let v = v.map_err(exit_pipe(&op.pos))?;
+                result = func.call(vec![result, v]).map_err(exit_pipe(&op.pos))?;
             }
             Ok(result)
         },
@@ -424,10 +438,12 @@ pub fn eval_ternary(arg1: &Expr, arg2: &Expr, arg3: &Expr, op: &Token, env: EnvR
             let iter = eval_expr(arg1, env.clone())?;
             let mut result = eval_expr(arg2, env.clone())?;
             let func = eval_expr(arg3, env)?;
+            let func = func.as_func()
+                .map_err(|e| RuntimeError::new(e, op.pos.clone()))?;
             let lst = iter.iter().map_err(|e| RuntimeError::new(e, op.pos.clone()))?.collect::<Vec<Result<Value, RuntimeError>>>();
             for v in lst.into_iter().rev() {
-                let v = v.map_err(|e| e.complete(op.pos.clone()))?;
-                result = func.call(vec![v, result]).map_err(|e| e.complete(op.pos.clone()))?;
+                let v = v.map_err(exit_pipe(&op.pos))?;
+                result = func.call(vec![v, result]).map_err(exit_pipe(&op.pos))?;
             }
             Ok(result)
         },

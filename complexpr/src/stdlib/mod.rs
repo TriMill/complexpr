@@ -131,7 +131,7 @@ fn fn_range(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 fn fn_len(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    Ok(Value::Int(args[0].len().map_err(RuntimeError::new_incomplete)? as i64))
+    Ok(Value::Int(args[0].len().map_err(RuntimeError::new_no_pos)? as i64))
 }
 
 fn fn_has(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -213,9 +213,9 @@ fn skip_inner(_: Vec<Value>, data: Rc<RefCell<Vec<Value>>>, iter_data: Rc<RefCel
 
 fn fn_skip(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let n = match args[0] {
-        Value::Int(n) if n <= 0 => return Err(RuntimeError::new_incomplete("First argument to skip must be nonnegative")),
+        Value::Int(n) if n <= 0 => return Err(RuntimeError::new_no_pos("First argument to skip must be nonnegative")),
         Value::Int(n) => n,
-        _ => return Err(RuntimeError::new_incomplete("First argument to skip must be an integer"))
+        _ => return Err(RuntimeError::new_no_pos("First argument to skip must be an integer"))
     };
     let it = args[1].iter()?;
     Ok(Value::Func(Func::BuiltinClosure {
@@ -227,7 +227,7 @@ fn fn_skip(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 fn fn_forall(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    let func = &args[0];
+    let func = &args[0].as_func()?;
     for item in args[1].iter()? {
         let item = item?;
         if !func.call(vec![item])?.truthy() {
@@ -238,7 +238,7 @@ fn fn_forall(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 fn fn_exists(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    let func = &args[0];
+    let func = &args[0].as_func()?;
     for item in args[1].iter()? {
         let item = item?;
         if func.call(vec![item])?.truthy() {
