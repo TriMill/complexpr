@@ -2,7 +2,7 @@ use std::{collections::HashMap, rc::Rc, cell::RefCell};
 
 use num_traits::Pow;
 
-use crate::{value::{Value, Complex, Func, CIterator}, expr::{Stmt, Expr}, token::{TokenType, Token, OpType}, RuntimeError, Position, env::{EnvRef, Environment}};
+use crate::{value::{Value, Complex, func::{Func, CIterator}}, expr::{Stmt, Expr}, token::{TokenType, Token, OpType}, RuntimeError, Position, env::{EnvRef, Environment}};
 
 thread_local!(static PIPE_NAME: Option<Rc<str>> = Some(Rc::from("<pipeline>")));
 thread_local!(static FORLOOP_NAME: Option<Rc<str>> = Some(Rc::from("<for loop>")));
@@ -122,7 +122,8 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), Unwind> {
         Stmt::Return { pos, expr } => {
             let value = eval_expr(expr, env)?;
             return Err(Unwind::Return { pos: pos.clone(), value })
-        }
+        },
+        Stmt::Struct { .. } => todo!(),
     }
     Ok(())
 }

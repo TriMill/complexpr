@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{token::{Token, OpType}, Position};
+use crate::{token::{Token, OpType}, Position, value::Type};
 
 #[derive(Clone)]
 pub enum Stmt {
@@ -14,6 +14,7 @@ pub enum Stmt {
     Continue { pos: Position },
     Return { pos: Position, expr: Expr },
     Fn { name: Token, args: Vec<Token>, body: Box<Stmt> },
+    Struct { name: Token, ty: Type, items: Vec<Token> }
 }
 
 impl fmt::Debug for Stmt {
@@ -29,6 +30,7 @@ impl fmt::Debug for Stmt {
             Self::Continue { .. } => write!(f, "(continue)"),
             Self::Return { expr, .. } => write!(f, "(return {:?})", expr),
             Self::Fn { name, args, body } => write!(f, "(fn {:?} {:?} {:?})", name, args, body),
+            Self::Struct { name, ty, items } => write!(f, "(struct {:?} #{:?} {:?})", name, ty.id, items),
         }
     }
 }

@@ -10,3 +10,7 @@ complexpr = { path = "../complexpr" }
 rustyline = "10.0.0"
 backtrace = "0.3.66"
 rustyline-derive = "0.7.0"
+
+[[bin]]
+name = "complexpr"
+path = "src/main.rs"

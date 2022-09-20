@@ -347,6 +347,7 @@ impl Lexer {
             "for" => TokenType::For,
             "fn" => TokenType::Fn,
             "let" => TokenType::Let,
+            "struct" => TokenType::Struct,
             "break" => TokenType::Break,
             "continue" => TokenType::Continue,
             "return" => TokenType::Return,

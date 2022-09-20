@@ -1,4 +1,4 @@
-use crate::{token::{Token, TokenType, OpType}, ParserError, expr::{Stmt, Expr}};
+use crate::{token::{Token, TokenType, OpType}, ParserError, expr::{Stmt, Expr}, value};
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -10,6 +10,20 @@ impl Parser {
     pub fn new(tokens: Vec<Token>, repl: bool) -> Self {
         Self { tokens, repl, idx: 0 }
     }
+    
+    pub fn parse(&mut self) -> Result<Vec<Stmt>, ParserError> {
+        let mut stmts = vec![];
+        while !self.at_end() {
+            stmts.push(self.statement(!self.repl)?);
+        }
+        Ok(stmts)
+    }
+
+    ////////////////////////
+    //                    //
+    //  Helper functions  //
+    //                    //
+    ////////////////////////
 
     fn at_end(&self) -> bool {
         self.idx >= self.tokens.len()
@@ -23,6 +37,11 @@ impl Parser {
         let t = self.tokens[self.idx].clone();
         self.idx += 1;
         t
+    }
+
+    fn expect(&mut self, tokty: TokenType) -> (bool, Token) {
+        let next = self.next();
+        (tokty == next.ty, next)
     }
 
     fn mk_error<S>(&self, msg: S) -> ParserError where S: Into<String> {
@@ -42,13 +61,38 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self) -> Result<Vec<Stmt>, ParserError> {
-        let mut stmts = vec![];
-        while !self.at_end() {
-            stmts.push(self.statement(!self.repl)?);
+    fn ident(&mut self) -> Result<Token, ParserError> {
+        let next = self.next();
+        match next.ty {
+            TokenType::Ident(_) => Ok(next),
+            _ => Err(ParserError { message: "Expected identifier".into(), pos: next.pos })
         }
-        Ok(stmts)
     }
+
+    fn commalist<T>(&mut self, terminator: TokenType, parse_item: fn(&mut Parser) -> Result<T, ParserError>) -> Result<Vec<T>, ParserError> {
+        let mut items = vec![];
+        while !self.at_end() && self.peek().ty != terminator {
+            let expr = parse_item(self)?;
+            items.push(expr);
+            self.err_on_eof()?;
+            if self.peek().ty == TokenType::Comma {
+                self.next();
+            } else if self.peek().ty == terminator {
+                break;
+            } else {
+                return Err(self.mk_error(format!("Expected Comma or {:?} after list", terminator)))
+            }
+        }
+        self.err_on_eof()?;
+        self.next();
+        Ok(items)
+    }
+
+    //////////////////
+    //              //
+    //  Statements  //
+    //              //
+    //////////////////
 
     fn statement(&mut self, req_semicolon: bool) -> Result<Stmt, ParserError> {
         let next_ty = &self.peek().ty;
@@ -96,6 +140,10 @@ impl Parser {
                 self.next();
                 self.fndef()
             },
+            TokenType::Struct => {
+                self.next();
+                self.structstmt()
+            },
             _ => {
                 // fallback to an expression terminated with a semicolon
                 let expr = self.assignment()?;
@@ -112,11 +160,9 @@ impl Parser {
             self.err_on_eof()?;
         }
 
-        let next = self.next();
-
-        match next.ty {
-            TokenType::Semicolon => Ok(stmt),
-            _ => Err(self.mk_error("Missing semicolon after statement"))
+        match self.expect(TokenType::Semicolon) {
+            (true, _) => Ok(stmt),
+            (false, _) => Err(self.mk_error("Missing semicolon after statement"))
         }
 
     }
@@ -196,22 +242,13 @@ impl Parser {
             return Err(ParserError { message: "Expected identifer in function declaration".into(), pos: name.pos })
         };
         self.err_on_eof()?;
-        let next = self.next();
-        if let TokenType::LParen = next.ty {} else {
-            return Err(ParserError { message: "Expected left parenthesis to start arguments list".into(), pos: next.pos })
+        if !self.expect(TokenType::LParen).0 {
+            return Err(self.mk_error("Expected left parenthesis to start arguments list"))
         }
         let args = self.commalist(TokenType::RParen, Self::ident)?;
         self.err_on_eof()?;
         let body = self.statement(false)?;
         Ok(Stmt::Fn { name, args, body: Box::new(body) })
-    }
-
-    fn ident(&mut self) -> Result<Token, ParserError> {
-        let next = self.next();
-        match next.ty {
-            TokenType::Ident(_) => Ok(next),
-            _ => Err(ParserError { message: "Expected identifier".into(), pos: next.pos })
-        }
     }
 
     fn block(&mut self) -> Result<Stmt, ParserError> {
@@ -224,6 +261,26 @@ impl Parser {
         Ok(Stmt::Block{ stmts })
     }
 
+    fn structstmt(&mut self) -> Result<Stmt, ParserError> {
+        self.err_on_eof()?;
+        let tok_name = self.ident()?;
+        let name = tok_name.ty.clone().as_ident().unwrap();
+        self.err_on_eof()?;
+        if !self.expect(TokenType::LBrace).0 {
+            return Err(self.mk_error("Expected left brace in struct definition"))
+        }
+        self.err_on_eof()?;
+        let items = self.commalist(TokenType::RBrace, Self::ident)?;
+        let ty = value::generate_type(name);
+        Ok(Stmt::Struct { name: tok_name, ty, items })
+    }
+
+    ///////////////////
+    //               //
+    //  Expressions  //
+    //               //
+    ///////////////////
+     
     // Generic method for left-associative operators
     fn expr(&mut self, op_type: OpType, next_level: fn(&mut Parser) -> Result<Expr, ParserError>) -> Result<Expr, ParserError> {
         let mut expr = next_level(self)?;
@@ -235,24 +292,6 @@ impl Parser {
         Ok(expr)
     }
 
-    fn commalist<T>(&mut self, terminator: TokenType, parse_item: fn(&mut Parser) -> Result<T, ParserError>) -> Result<Vec<T>, ParserError> {
-        let mut items = vec![];
-        while !self.at_end() && self.peek().ty != terminator {
-            let expr = parse_item(self)?;
-            items.push(expr);
-            self.err_on_eof()?;
-            if self.peek().ty == TokenType::Comma {
-                self.next();
-            } else if self.peek().ty == terminator {
-                break;
-            } else {
-                return Err(self.mk_error(format!("Expected Comma or {:?} after list", terminator)))
-            }
-        }
-        self.err_on_eof()?;
-        self.next();
-        Ok(items)
-    }
 
     fn assignment(&mut self) -> Result<Expr, ParserError> {
         let mut stack= vec![];
@@ -278,8 +317,7 @@ impl Parser {
             let right = self.logical_or()?;
             if op.ty == TokenType::PipeSlash || op.ty == TokenType::PipeBackslash {
                 self.err_on_eof()?;
-                let next = self.next();
-                if next.ty != TokenType::Comma {
+                if !self.expect(TokenType::Comma).0 {
                     return Err(self.mk_error("Expected comma after first argument"))
                 }
                 let right2 = self.logical_or()?;
@@ -358,7 +396,7 @@ impl Parser {
         let lbrack = self.next();
         let index = self.assignment()?;
         self.err_on_eof()?;
-        if self.next().ty != TokenType::RBrack {
+        if !self.expect(TokenType::RBrack).0 {
             return Err(self.mk_error("Expected RBrack after collection index"))
         }
         Ok(Expr::Index { lhs: Box::new(expr), index: Box::new(index), pos: lbrack.pos })
@@ -367,8 +405,7 @@ impl Parser {
     fn kv_pair(&mut self) -> Result<(Expr, Expr), ParserError> {
         let key = self.assignment()?;
         self.err_on_eof()?;
-        let next = self.next();
-        if next.ty != TokenType::Colon {
+        if !self.expect(TokenType::Colon).0 {
             return Err(self.mk_error("Expected colon in key-value pair"))
         }
         self.err_on_eof()?;
@@ -402,8 +439,7 @@ impl Parser {
             Ok(Expr::Map { items })
         } else if next.ty == TokenType::Fn {
             self.err_on_eof()?;
-            let next = self.next();
-            if let TokenType::LParen = next.ty {} else {
+            if !self.expect(TokenType::LParen).0 {
                 return Err(self.mk_error("Expected left parenthesis to start arguments list"))
             }
             let args = self.commalist(TokenType::RParen, Self::ident)?;

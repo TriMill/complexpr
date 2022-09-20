@@ -1,200 +1,59 @@
-use std::{rc::Rc, collections::HashMap, ops::*, fmt, cmp::Ordering, cell::RefCell, hash::Hash};
+use std::{rc::Rc, collections::HashMap, ops::*, cmp::Ordering, cell::RefCell, hash::Hash, sync::atomic::{AtomicUsize, self}};
 
 use num_traits::{Zero, ToPrimitive, Pow};
+use strum::{EnumCount, EnumDiscriminants, EnumIter, IntoEnumIterator, AsRefStr};
 
-use crate::{RuntimeError, eval::{eval_stmt, Unwind, eval_expr}, expr::Stmt, env::{EnvRef, Environment}};
+use self::func::{Func, CIterator};
+
+pub mod func;
 
 pub type Rational = num_rational::Ratio<i64>;
 pub type Complex = num_complex::Complex64;
-pub type ClosureData = Rc<RefCell<Vec<Value>>>;
-pub type ClosureIterData = Rc<RefCell<Vec<CIterator>>>;
 
-#[derive(Clone)]
-pub enum Func {
-    Func {
-        name: Option<Rc<str>>,
-        args: Vec<Rc<str>>,
-        env: EnvRef,
-        func: Box<Stmt>,
-    },
-    Builtin {
-        name: Rc<str>,
-        func: fn(Vec<Value>) -> Result<Value, RuntimeError>,
-        arg_count: usize,
-    },
-    BuiltinClosure { 
-        func: fn(Vec<Value>, ClosureData, ClosureIterData) -> Result<Value, RuntimeError>,
-        data: ClosureData,
-        iter_data: ClosureIterData,
-        arg_count: usize,
-    },
-    Partial {
-        inner: Box<Func>,
-        filled_args: Vec<Value>,
-    }
-}
-
-impl fmt::Debug for Func {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Func { name, args, .. } 
-                => f.debug_struct("Func::Func")
-                    .field("name", name)
-                    .field("args", args)
-                    .finish_non_exhaustive(),
-            Self::Builtin { name, arg_count, .. } 
-                => f.debug_struct("Func::Builtin") 
-                    .field("name", name)
-                    .field("arg_count", arg_count)
-                    .finish_non_exhaustive(),
-            Self::BuiltinClosure { arg_count, data, .. } 
-                => f.debug_struct("Func::BuiltinClosure") 
-                    .field("arg_count", arg_count)
-                    .field("data", data)
-                    .finish_non_exhaustive(),
-            Self::Partial { inner, filled_args } 
-                => f.debug_struct("Func::Partial") 
-                    .field("inner", inner)
-                    .field("filled_args", filled_args)
-                    .finish(),
-        }
-    }
-    
-}
-
-impl Func {
-    pub fn arg_count(&self) -> usize {
-        match self {
-            Self::Builtin { arg_count, .. } => *arg_count,
-            Self::BuiltinClosure { arg_count, .. } => *arg_count,
-            Self::Func { args, .. } => args.len(),
-            Self::Partial { inner, filled_args } => inner.arg_count() - filled_args.len(),
-        }
-    }
-
-    pub fn name(&self) -> Option<Rc<str>> {
-        match self {
-            Self::Builtin { name, .. } => Some(name.clone()),
-            Self::BuiltinClosure { .. } => None,
-            Self::Func { name, .. } => name.clone(),
-            Self::Partial { inner, .. } => inner.name()
-        }
-    }
-
-    pub fn call(&self, mut arg_values: Vec<Value>) -> Result<Value, RuntimeError> {
-        match arg_values.len().cmp(&self.arg_count()) {
-            Ordering::Equal => match self {
-                Self::Builtin { func, .. } 
-                    => func(arg_values),
-                Self::BuiltinClosure { func, data, iter_data, .. } 
-                    => func(arg_values, data.clone(), iter_data.clone()),
-                Self::Func { args, func, env, .. } => {
-                    let mut env = Environment::extend(env.clone());
-                    for (k, v) in args.iter().zip(arg_values.iter()) {
-                        env.declare(k.clone(), v.clone());
-                    }
-                    match func.as_ref() {
-                        Stmt::Expr { expr } => eval_expr(expr, env.wrap()),
-                        stmt => match eval_stmt(stmt, env.wrap()) {
-                            Ok(()) => Ok(Value::Nil),
-                            Err(Unwind::Return{ value, .. }) => Ok(value),
-                            Err(e) => Err(e.as_error()),
-                        }
-
-                    }
-                },
-                Self::Partial { inner, filled_args } => {
-                    let mut filled_args = filled_args.clone();
-                    filled_args.append(&mut arg_values);
-                    inner.call(filled_args)
-                }
-            },
-            Ordering::Less if arg_values.is_empty() => Err(RuntimeError::new_no_pos(
-                format!("Cannot call this function with zero arguments: expected {}", self.arg_count())
-            )),
-            Ordering::Less => match self {
-                Self::Partial { inner, filled_args } => {
-                    let mut args = filled_args.clone();
-                    args.append(&mut arg_values);
-                    Ok(Value::Func(Func::Partial { inner: inner.clone(), filled_args: args }))
-                }
-                f => Ok(Value::Func(Func::Partial { inner: Box::new(f.clone()), filled_args: arg_values }))
-            },
-            Ordering::Greater => Err(RuntimeError::new_no_pos(
-                format!("Too many arguments for function: expected {}, got {}", self.arg_count(), arg_values.len())
-            ))
-        }
-    }
-}
-
-impl Hash for Func {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match self {
-            Self::Builtin { name, arg_count, func } => {
-                name.hash(state);
-                arg_count.hash(state);
-                func.hash(state);
-            },
-            Self::Func { name, args, .. } => {
-                name.hash(state);
-                args.hash(state);
-            },
-            Self::BuiltinClosure { arg_count, data, .. } => {
-                arg_count.hash(state);
-                data.borrow().hash(state);
-            },
-            Self::Partial { inner, filled_args } => {
-                filled_args.hash(state);
-                inner.hash(state);
-            }
-        }
-    }
-}
-
-pub enum CIterator {
-    // precondition: value must be len()able
-    Indexable{ value: Value, idx: i64 },
-    Func(Func)
-}
-
-impl Iterator for CIterator {
-    type Item = Result<Value, RuntimeError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Self::Indexable{ value, ref mut idx } => {
-                if *idx >= value.len().unwrap() as i64 {
-                    None
-                } else {
-                    let result = value.index(&Value::Int(*idx)).unwrap();
-                    *idx += 1;
-                    Some(Ok(result))
-                }
-            },
-            Self::Func(f) => match f.call(vec![]) {
-                Ok(Value::Nil) => None,
-                x => Some(x)
-            },
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Data {
-    pub ty: usize,
-    // TODO user-defined data types
-}
-
-#[derive(Clone, Debug)]
+static TYPE_COUNTER: AtomicUsize = AtomicUsize::new(Value::COUNT);
+#[derive(Clone, Debug, Eq)]
 pub struct Type {
     pub name: Rc<str>,
     pub id: usize
 }
 
+impl PartialEq for Type {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+
+pub fn generate_type(name: Rc<str>) -> Type {
+    Type { 
+        name, 
+        id: TYPE_COUNTER.fetch_add(1, atomic::Ordering::Relaxed) 
+    }
+}
+
+pub fn generate_builtin_types() -> Vec<Type> {
+    let mut types = vec![];
+    for x in ValueDiscriminants::iter() {
+        types.push(Type {
+            name: Rc::from(x.as_ref()),
+            id: x as usize,
+        })
+    }
+    types
+}
+
 #[derive(Clone, Debug)]
+pub struct CxprStruct {
+    pub ty: Type,
+    pub data: Vec<Value>,
+}
+
+#[derive(Clone, Debug, EnumCount, EnumDiscriminants)]
+#[strum_discriminants(derive(EnumIter, AsRefStr))]
+#[repr(u8)]
 pub enum Value {
     Nil,
-    Type(usize),
+    Type(Type),
     Int(i64), Float(f64), Complex(Complex), Rational(Rational),
     Bool(bool), 
     Char(char),
@@ -202,7 +61,7 @@ pub enum Value {
     List(Rc<RefCell<Vec<Value>>>), 
     Map(Rc<RefCell<HashMap<Value,Value>>>),
     Func(Func),
-    Data(Data),
+    Data(CxprStruct),
 }
 
 impl Value {
@@ -255,7 +114,7 @@ impl Value {
             Self::String(s) => s.clone(),
             Self::List(l) => Rc::from(format!("{:?}", l)), // TODO fix
             Self::Map(m) => Rc::from(format!("{:?}", m)), // TODO fix
-            Self::Type(_) => todo!(),
+            Self::Type(t) => Rc::from(format!("<type {}>", t.name)),
             Self::Func(Func::Builtin { name, func, .. }) => Rc::from(format!("<builtin fn {} at {:?}>", name, *func as *const ())),
             Self::Func(Func::BuiltinClosure { func, .. }) => Rc::from(format!("<builtin anonymous fn at {:?}>", *func as *const ())),
             Self::Func(f @ Func::Partial { .. }) => match f.name() {
@@ -349,6 +208,18 @@ impl Value {
             (x,y) => Err(format!("Unsupported operation 'fracdiv' between {:?} and {:?}", x, y))
         }
     }
+    
+    pub fn get_type(&self) -> Type {
+        let discr = ValueDiscriminants::from(self);
+        if let Self::Data(_) = self {
+            todo!()
+        } else {
+            Type {
+                name: Rc::from(discr.as_ref()),
+                id: discr as usize
+            }
+        }
+    }
 }
 
 #[allow(clippy::ptr_eq)] // provided fix does not work
@@ -356,7 +227,7 @@ impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Nil, Self::Nil)                 => true,
-            (Self::Type(a), Self::Type(b))         => a == b,
+            (Self::Type(a), Self::Type(b))         => a.id == b.id,
 
             (Self::Int(a), Self::Int(b))           => a == b,
             (Self::Rational(a), Self::Int(b))      => *a == Rational::from(*b),
@@ -443,7 +314,7 @@ fn hash_f64<H: std::hash::Hasher>(f: f64, state: &mut H) {
         } else{
             "-inf".hash(state)
         }
-    } else{
+    } else {
         f.to_bits().hash(state);
     }
 }
@@ -452,7 +323,7 @@ impl Hash for Value {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
             Self::Nil => "nil".hash(state),
-            Self::Type(_) => todo!(),
+            Self::Type(t) => { "<type>".hash(state); t.id.hash(state); }
             Self::Int(i) => i.hash(state),
             Self::Float(f) => hash_f64(*f, state),
             Self::Complex(z) => { hash_f64(z.re, state); hash_f64(z.im, state); }

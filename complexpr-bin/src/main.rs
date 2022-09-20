@@ -61,14 +61,20 @@ fn repl() -> Result<(), Box<dyn std::error::Error>> {
     rl.set_helper(Some(h));
     println!("Press {}Ctrl+D{} to exit.", C_BLUE, C_RESET);
     stdlib::load(&mut env.borrow_mut());
+    stdlib::iter::load(&mut env.borrow_mut());
+    stdlib::math::load(&mut env.borrow_mut());
     loop {
         let readline = rl.readline(">> ");
         match readline {
             Ok(line) => {
                 let result = interpret(&line, None, Some(env.clone()), true);
                 match result {
-                    Ok(Value::Nil) => (),
-                    Ok(value) => println!("{}", value.repr()),
+                    Ok(value) => {
+                        if value != Value::Nil {
+                            println!("{}", value.repr());
+                        }
+                        env.borrow_mut().declare("_".into(), value);
+                    }
                     Err(e) => eprintln!("{}Error: {}{}", C_RED, C_RESET, e)
                 }
             }

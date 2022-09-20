@@ -37,7 +37,8 @@ pub enum TokenType {
 
     True, False, Nil, 
     If, Elif, Else, For, While, 
-    Fn, Let, Break, Continue, Return
+    Fn, Let, Struct,
+    Break, Continue, Return
 }
 
 impl TokenType {
