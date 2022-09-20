@@ -331,30 +331,38 @@ pub fn eval_comp(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Valu
     }
 }
 
-fn pipecolon_inner(_: Vec<Value>, data: Rc<RefCell<Vec<Value>>>, iter_data: Rc<RefCell<Vec<CIterator>>>) -> Result<Value, RuntimeError> {
-    let f = &data.borrow()[0];
-    if let Some(next) = iter_data.borrow_mut()[0].next() {
-        let func = f.as_func()?;
-        func.call(vec![next?])
-    } else {
-        Ok(Value::Nil)
+fn mk_pipecolon_inner(f: Func, it: CIterator) -> Func {
+    let it = RefCell::new(it);
+    return Func::BuiltinClosure{
+        arg_count: 0,
+        func: Rc::new(move |_| {
+            if let Some(next) = it.borrow_mut().next() {
+                f.call(vec![next?])
+            } else {
+                Ok(Value::Nil)
+            }
+        })
     }
 }
 
-fn pipequestion_inner(_: Vec<Value>, data: Rc<RefCell<Vec<Value>>>, iter_data: Rc<RefCell<Vec<CIterator>>>) -> Result<Value, RuntimeError> {
-    let f = &data.borrow()[0];
-    loop {
-        let next = iter_data.borrow_mut()[0].next();
-        if let Some(next) = next {
-            let next = next?;
-            let func = f.as_func()?;
-            let success = func.call(vec![next.clone()])?.truthy();
-            if success {
-                return Ok(next)
+fn mk_pipequestion_inner(f: Func, it: CIterator) -> Func {
+    let it = RefCell::new(it);
+    return Func::BuiltinClosure {
+        arg_count: 0,
+        func: Rc::new(move |_| {
+            loop {
+                let next = it.borrow_mut().next();
+                if let Some(next) = next {
+                    let next = next?;
+                    let success = f.call(vec![next.clone()])?.truthy();
+                    if success {
+                        return Ok(next)
+                    }
+                } else {
+                    return Ok(Value::Nil)
+                }
             }
-        } else {
-            return Ok(Value::Nil)
-        }
+        })
     }
 }
 
@@ -370,22 +378,8 @@ pub fn eval_pipeline(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<
 fn eval_pipeline_inner(l: Value, r: &Func, op: &Token) -> Result<Value, RuntimeError> {
     match op.ty {
         TokenType::PipePoint => r.call(vec![l]),
-        TokenType::PipeColon => {
-            Ok(Value::Func(Func::BuiltinClosure {
-                arg_count: 0,
-                data: Rc::new(RefCell::new(vec![Value::Func(r.clone())])),
-                iter_data: Rc::new(RefCell::new(vec![l.iter()?])),
-                func: pipecolon_inner,
-            }))
-        },
-        TokenType::PipeQuestion => {
-            Ok(Value::Func(Func::BuiltinClosure {
-                arg_count: 0,
-                data: Rc::new(RefCell::new(vec![Value::Func(r.clone())])),
-                iter_data: Rc::new(RefCell::new(vec![l.iter()?])),
-                func: pipequestion_inner,
-            }))
-        },
+        TokenType::PipeColon => Ok(Value::Func(mk_pipecolon_inner(r.clone(), l.iter()?))),
+        TokenType::PipeQuestion => Ok(Value::Func(mk_pipequestion_inner(r.clone(), l.iter()?))),
         TokenType::PipeDoubleSlash => {
             let mut result = Value::Nil;
             let mut first_iter = true;

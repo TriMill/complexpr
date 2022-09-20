@@ -21,9 +21,7 @@ pub enum Func {
         arg_count: usize,
     },
     BuiltinClosure { 
-        func: fn(Vec<Value>, ClosureData, ClosureIterData) -> Result<Value, RuntimeError>,
-        data: ClosureData,
-        iter_data: ClosureIterData,
+        func: Rc<dyn Fn(Vec<Value>) -> Result<Value, RuntimeError>>,
         arg_count: usize,
     },
     Partial {
@@ -45,10 +43,9 @@ impl fmt::Debug for Func {
                     .field("name", name)
                     .field("arg_count", arg_count)
                     .finish_non_exhaustive(),
-            Self::BuiltinClosure { arg_count, data, .. } 
+            Self::BuiltinClosure { arg_count, .. } 
                 => f.debug_struct("Func::BuiltinClosure") 
                     .field("arg_count", arg_count)
-                    .field("data", data)
                     .finish_non_exhaustive(),
             Self::Partial { inner, filled_args } 
                 => f.debug_struct("Func::Partial") 
@@ -84,8 +81,8 @@ impl Func {
             Ordering::Equal => match self {
                 Self::Builtin { func, .. } 
                     => func(arg_values),
-                Self::BuiltinClosure { func, data, iter_data, .. } 
-                    => func(arg_values, data.clone(), iter_data.clone()),
+                Self::BuiltinClosure { func, .. }
+                    => func(arg_values),
                 Self::Func { args, func, env, .. } => {
                     let mut env = Environment::extend(env.clone());
                     for (k, v) in args.iter().zip(arg_values.iter()) {
@@ -137,9 +134,8 @@ impl Hash for Func {
                 name.hash(state);
                 args.hash(state);
             },
-            Self::BuiltinClosure { arg_count, data, .. } => {
+            Self::BuiltinClosure { arg_count, .. } => {
                 arg_count.hash(state);
-                data.borrow().hash(state);
             },
             Self::Partial { inner, filled_args } => {
                 filled_args.hash(state);

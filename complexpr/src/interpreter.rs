@@ -14,6 +14,7 @@ pub fn interpret(src: &str, fname: Option<String>, env: Option<EnvRef>, repl: bo
     } else {
         environ = Rc::new(RefCell::new(Environment::new()));
         stdlib::load(&mut environ.borrow_mut());
+        stdlib::io::load(&mut environ.borrow_mut());
         stdlib::iter::load(&mut environ.borrow_mut());
         stdlib::math::load(&mut environ.borrow_mut());
     }

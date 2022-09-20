@@ -1,6 +1,6 @@
 use std::{rc::Rc, cell::RefCell};
 
-use crate::{value::{Value, func::{Func, CIterator}}, RuntimeError, env::Environment, declare_fn};
+use crate::{value::{Value, func::Func}, RuntimeError, env::Environment, declare_fn};
 
 pub fn load(env: &mut Environment) {
     declare_fn!(env, take, 2);
@@ -9,44 +9,27 @@ pub fn load(env: &mut Environment) {
     declare_fn!(env, exists, 2);
 }
 
-
-fn take_inner(_: Vec<Value>, data: Rc<RefCell<Vec<Value>>>, iter_data: Rc<RefCell<Vec<CIterator>>>) -> Result<Value, RuntimeError> {
-    // 0: current index
-    // 1: target index
-    let mut d = data.borrow_mut();
-    if d[0] >= d[1] {
-        Ok(Value::Nil)
-    } else {
-        d[0] = (&d[0] + &Value::Int(1))?;
-        match iter_data.borrow_mut()[0].next() {
-            None => Ok(Value::Nil),
-            Some(x) => x
-        }
-    }
-}
-
 fn fn_take(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    let idx = RefCell::new(0);
+    let limit = match args[0] {
+        Value::Int(n) => n,
+        _ => return Err("Argument to take must be an integer".into()),
+    };
+    let it = RefCell::new(args[1].iter()?);
     Ok(Value::Func(Func::BuiltinClosure { 
         arg_count: 0,
-        data: Rc::new(RefCell::new(vec![Value::Int(0), args[0].clone()])),
-        iter_data: Rc::new(RefCell::new(vec![args[1].iter()?])),
-        func: take_inner
+        func: Rc::new(move |_| {
+            if *idx.borrow() >= limit {
+                Ok(Value::Nil)
+            } else {
+                *idx.borrow_mut() += 1;
+                match it.borrow_mut().next() {
+                    None => Ok(Value::Nil),
+                    Some(x) => x
+                }
+            }
+        })
     }))
-}
-
-fn skip_inner(_: Vec<Value>, data: Rc<RefCell<Vec<Value>>>, iter_data: Rc<RefCell<Vec<CIterator>>>) -> Result<Value, RuntimeError> {
-    let mut d = if let Value::Int(d) = data.borrow()[0] { d } else {
-        unreachable!() // checked by fn_skip()
-    };
-    while d > 0 {
-        iter_data.borrow_mut()[0].next();
-        d -= 1;
-    }
-    data.borrow_mut()[0] = Value::Int(d);
-    match iter_data.borrow_mut()[0].next() {
-        None => Ok(Value::Nil),
-        Some(x) => x
-    }
 }
 
 fn fn_skip(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -55,12 +38,20 @@ fn fn_skip(args: Vec<Value>) -> Result<Value, RuntimeError> {
         Value::Int(n) => n,
         _ => return Err(RuntimeError::new_no_pos("First argument to skip must be an integer"))
     };
-    let it = args[1].iter()?;
+    let it = RefCell::new(args[1].iter()?);
+    let idx = RefCell::new(0);
     Ok(Value::Func(Func::BuiltinClosure {
         arg_count: 0,
-        data: Rc::new(RefCell::new(vec![Value::Int(n)])),
-        iter_data: Rc::new(RefCell::new(vec![it])),
-        func: skip_inner
+        func: Rc::new(move |_| {
+            while *idx.borrow() < n {
+                it.borrow_mut().next();
+                *idx.borrow_mut() += 1;
+            }
+            match it.borrow_mut().next() {
+                None => Ok(Value::Nil),
+                Some(x) => x
+            }
+        })
     }))
 }
 

@@ -61,6 +61,7 @@ fn repl() -> Result<(), Box<dyn std::error::Error>> {
     rl.set_helper(Some(h));
     println!("Press {}Ctrl+D{} to exit.", C_BLUE, C_RESET);
     stdlib::load(&mut env.borrow_mut());
+    stdlib::io::load(&mut env.borrow_mut());
     stdlib::iter::load(&mut env.borrow_mut());
     stdlib::math::load(&mut env.borrow_mut());
     loop {

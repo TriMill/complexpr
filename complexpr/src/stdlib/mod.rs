@@ -1,19 +1,20 @@
-pub mod math;
+pub mod io;
 pub mod iter;
+pub mod math;
 
-use std::{rc::Rc, io::Write, cmp::Ordering, time::{SystemTime, UNIX_EPOCH}, cell::RefCell};
+use std::{rc::Rc, cmp::Ordering, time::{SystemTime, UNIX_EPOCH}, cell::RefCell};
 
-use crate::{value::{Value, func::{Func, CIterator}}, RuntimeError, env::Environment};
+use crate::{value::{Value, func::Func}, RuntimeError, env::Environment};
 
 #[macro_export]
 macro_rules! declare_fn {
-    ($env:ident, $name:ident, $arg_count:literal) => {paste::paste!{{
-        let s: Rc<str> = Rc::from(stringify!($name));
-        $env.declare(s.clone(), Value::Func(Func::Builtin { func: [<fn_ $name>], arg_count: $arg_count, name: s }));
+    ($env:ident, $name:ident, $arg_count:literal) => {::paste::paste!{{
+        let s: ::std::rc::Rc<str> = ::std::rc::Rc::from(stringify!($name));
+        $env.declare(s.clone(), $crate::value::Value::Func($crate::value::func::Func::Builtin { func: [<fn_ $name>], arg_count: $arg_count, name: s }));
     }}};
     ($env:ident, $name:literal, $rust_name:ident, $arg_count:literal) => {{
-        let s: Rc<str> = Rc::from($name);
-        $env.declare(s.clone(), Value::Func(Func::Builtin { func: $rust_name, arg_count: $arg_count, name: s }));
+        let s: ::std::rc::Rc<str> = ::std::rc::Rc::from($name);
+        $env.declare(s.clone(), $crate::value::Value::Func($crate::value::func::Func::Builtin { func: $rust_name, arg_count: $arg_count, name: s }));
     }};
 }
 
@@ -22,9 +23,6 @@ pub fn load(env: &mut Environment) {
     declare_fn!(env, type_eq, 1);
     declare_fn!(env, str, 1);
     declare_fn!(env, repr, 1);
-    declare_fn!(env, print, 1);
-    declare_fn!(env, println, 1); 
-    declare_fn!(env, input, 0); 
     declare_fn!(env, ord, 1); 
     declare_fn!(env, chr, 1); 
     declare_fn!(env, range, 2); 
@@ -54,27 +52,6 @@ fn fn_repr(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::String(args[0].repr()))
 }
 
-fn fn_print(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    print!("{}", args[0].to_string());
-    std::io::stdout().flush().map_err(|e| e.to_string())?;
-    Ok(Value::Nil)
-}
-
-fn fn_println(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    println!("{}", args[0].to_string());
-    Ok(Value::Nil)
-}
-
-fn fn_input(_: Vec<Value>) -> Result<Value, RuntimeError> {
-    let mut buffer = String::new();
-    let stdin = std::io::stdin();
-    stdin.read_line(&mut buffer).map_err(|e| e.to_string())?;
-    if buffer.ends_with('\n') {
-        buffer.pop();
-    }
-    Ok(Value::from(buffer))
-}
-
 fn fn_ord(args: Vec<Value>) -> Result<Value, RuntimeError> {
     if let Value::Char(c) = args[0] {
         Ok(Value::from(c as u32))
@@ -96,36 +73,36 @@ fn fn_chr(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 }
 
-fn range_inner(_: Vec<Value>, data: Rc<RefCell<Vec<Value>>>, _: Rc<RefCell<Vec<CIterator>>>) -> Result<Value, RuntimeError> {
-    const ZERO: Value = Value::Int(0);
-    let mut d = data.borrow_mut();
-    if d[2] >= ZERO && d[0] >= d[1]
-    || d[2] <= ZERO && d[0] <= d[1] {
-        Ok(Value::Nil)
-    } else {
-        let res = d[0].clone();
-        d[0] = (&d[0] + &d[2])?;
-        Ok(res)
+fn mk_range_inner(start: i64, end: i64, delta: i64) -> Func {
+    let counter = RefCell::new(start);
+    Func::BuiltinClosure {
+        arg_count: 0,
+        func: Rc::new(move |_| {
+            let c_value = *counter.borrow();
+            if delta >= 0 && c_value >= end
+            || delta <= 0 && c_value <= end {
+                Ok(Value::Nil)
+            } else {
+                let res = *counter.borrow();
+                *counter.borrow_mut() += delta;
+                Ok(Value::Int(res))
+            }
+        })
     }
 }
 
 fn fn_range(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    let start = &args[0];
-    let end = &args[1];
-    let delta = match (start, end) {
-        (Value::Int(a), Value::Int(b)) => match a.cmp(b) {
-            Ordering::Equal => 0,
-            Ordering::Less => 1,
-            Ordering::Greater => -1,
-        },
+    let (start, end, delta) = match (&args[0], &args[1]) {
+        (Value::Int(a), Value::Int(b)) => (a, b, 
+            match a.cmp(&b) {
+                Ordering::Equal => 0,
+                Ordering::Less => 1,
+                Ordering::Greater => -1,
+            }
+        ),
         _ => return Err("Both arguments to range must be integers".into())
     };
-    Ok(Value::Func(Func::BuiltinClosure { 
-        arg_count: 0,
-        data: Rc::new(RefCell::new(vec![start.clone(), end.clone(), Value::Int(delta)])),
-        iter_data: Rc::new(RefCell::new(vec![])),
-        func: range_inner
-    }))
+    Ok(Value::Func(mk_range_inner(*start, *end, delta)))
 }
 
 fn fn_len(args: Vec<Value>) -> Result<Value, RuntimeError> {

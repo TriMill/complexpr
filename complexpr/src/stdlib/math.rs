@@ -1,8 +1,8 @@
-use std::{rc::Rc, cmp::Ordering};
+use std::cmp::Ordering;
 
 use num_traits::{ToPrimitive, Pow};
 
-use crate::{value::{Value, func::Func, Complex, Rational}, RuntimeError, env::Environment, declare_fn};
+use crate::{value::{Value, Complex, Rational}, RuntimeError, env::Environment, declare_fn};
 
 enum Floaty {
     Real(f64), Complex(Complex)

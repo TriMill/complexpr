@@ -116,7 +116,7 @@ impl Value {
             Self::Map(m) => Rc::from(format!("{:?}", m)), // TODO fix
             Self::Type(t) => Rc::from(format!("<type {}>", t.name)),
             Self::Func(Func::Builtin { name, func, .. }) => Rc::from(format!("<builtin fn {} at {:?}>", name, *func as *const ())),
-            Self::Func(Func::BuiltinClosure { func, .. }) => Rc::from(format!("<builtin anonymous fn at {:?}>", *func as *const ())),
+            Self::Func(Func::BuiltinClosure { .. }) => Rc::from(format!("<builtin anonymous fn>")),
             Self::Func(f @ Func::Partial { .. }) => match f.name() {
                 Some(name) => Rc::from(format!("<partial of fn {}>", name)),
                 None => Rc::from("<partial of anonymous fn>"),
