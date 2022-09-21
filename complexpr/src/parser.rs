@@ -352,16 +352,52 @@ impl Parser {
     // Right associative, so cannot use self.expr(..)
     fn exponential(&mut self) -> Result<Expr, ParserError> {
         let mut stack= vec![];
-        let mut expr = self.unary()?;
+        let mut expr = self.range()?;
         while !self.at_end() && self.peek().ty == TokenType::Caret {
             let op = self.next();
             stack.push((expr, op));
-            expr = self.unary()?;
+            expr = self.range()?;
         }
         while let Some(item) = stack.pop() {
             expr = Expr::Binary{ lhs: Box::new(item.0), rhs: Box::new(expr), op: item.1 };
         }
         Ok(expr)
+    }
+
+    fn range(&mut self) -> Result<Expr, ParserError> {
+        let start = self.unary()?;
+        if !self.at_end() && self.peek().ty == TokenType::DoubleDot {
+            self.next();
+            // consume = if inclusive
+            let incl = if !self.at_end() && self.peek().ty == TokenType::Equal {
+                self.next();
+                true
+            } else { 
+                false 
+            };
+            // consume end number or * for endless
+            let end = if !incl && !self.at_end() && self.peek().ty == TokenType::Star {
+                self.next();
+                None
+            } else {
+                Some(self.unary()?)
+            };
+            // consume :step if it exists
+            let step = if !self.at_end() && self.peek().ty == TokenType::Colon {
+                self.next();
+                Some(self.unary()?)
+            } else {
+                None
+            };
+            Ok(Expr::Range { 
+                start: Box::new(start), 
+                end: end.map(|x| Box::new(x)), 
+                step: step.map(|x| Box::new(x)), 
+                incl 
+            })
+        } else {
+            Ok(start)
+        }
     }
 
     fn unary(&mut self) -> Result<Expr, ParserError> {

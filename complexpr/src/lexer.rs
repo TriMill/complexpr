@@ -55,6 +55,10 @@ impl Lexer {
         self.code[self.current]
     }
 
+    fn peek_ahead(&self, n: usize) -> Option<char> {
+        self.code.get(self.current + n).cloned()
+    }
+
     fn add_token<S>(&mut self, ty: TokenType, text: S) where S: Into<String> {
         self.tokens.push(Token { 
             ty, 
@@ -144,6 +148,10 @@ impl Lexer {
         while !self.at_end() {
             self.start = self.current;
             match self.next() {
+                '.' => match self.expect(&['.']) {
+                    Some('.') => self.add_token(TokenType::DoubleDot, ".."),
+                    _ => return Err(self.mk_error("Expected '.' after previous '.'"))
+                },
                 '+' => match self.expect(&['=']) {
                     Some('=') => self.add_token(TokenType::PlusEqual, "+="),
                     _ => self.add_token(TokenType::Plus, "+"),
@@ -304,6 +312,9 @@ impl Lexer {
                 if has_dot {
                     break;
                 } else {
+                    if self.peek_ahead(1) == Some('.') {
+                        break;
+                    }
                     has_dot = true;
                 }
             } 

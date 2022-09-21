@@ -147,6 +147,11 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
         },
         Expr::Ternary { arg1, arg2, arg3, op } => eval_ternary(arg1, arg2, arg3, op, env),
         Expr::Unary { arg, op } => eval_unary(arg, op, env),
+        Expr::Range { start, end, step, incl } 
+            => eval_range(start, 
+                end.as_ref().map(|x| x.as_ref()), 
+                step.as_ref().map(|x| x.as_ref()), 
+                *incl, env),
         Expr::List { items } => {
             let mut list = Vec::with_capacity(items.len());
             for item in items {
@@ -453,4 +458,62 @@ pub fn eval_unary(arg: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeE
         TokenType::Bang => Ok(Value::Bool(!a.truthy())),
         _ => todo!(),
     }.map_err(|e| RuntimeError::new(e, op.pos.clone()))
+}
+
+fn mk_numeric_range(start: Value, stop: Option<Value>, step: Value, incl: bool) -> Func {
+    let counter = RefCell::new(start);
+    Func::BuiltinClosure {
+        arg_count: 0,
+        func: Rc::new(move |_| {
+            let v = counter.borrow().clone();
+            if let Some(st) = &stop {
+                if v > *st || (!incl && v == *st) {
+                    return Ok(Value::Nil)
+                }
+            }
+            *counter.borrow_mut() = (&v + &step)?;
+            Ok(v)
+        })
+    }
+}
+
+fn mk_char_range(start: char, stop: Option<char>, step: i64) -> Func {
+    const UNICODE_ERR_MSG: &str = "Char range exceeded range of valid Unicode codepoints";
+    let counter = RefCell::new(start);
+    Func::BuiltinClosure {
+        arg_count: 0,
+        func: Rc::new(move |_| {
+            let v = *counter.borrow();
+            if let Some(st) = stop {
+                if v > st {
+                    return Ok(Value::Nil)
+                }
+            }
+            let next_i64 = (v as u32) as i64 + step;
+            let next_u32 = u32::try_from(next_i64)
+                .map_err(|_| UNICODE_ERR_MSG)?;
+            *counter.borrow_mut() = char::from_u32(next_u32)
+                .ok_or(UNICODE_ERR_MSG)?;
+            Ok(Value::Char(v))
+        })
+    }
+}
+
+pub fn eval_range(start: &Expr, end: Option<&Expr>, step: Option<&Expr>, incl: bool, env: EnvRef) -> Result<Value, RuntimeError> {
+    let start = eval_expr(start, env.clone())?;
+    let end = end.map(|e| eval_expr(e, env.clone())).transpose()?;
+    let step = step.map(|e| eval_expr(e, env)).transpose()?.unwrap_or(Value::Int(1));
+    match (start, end, step, incl) {
+        (
+            n1 @ (Value::Int(_) | Value::Rational(_)),
+            n2 @ (None | Some(Value::Int(_)) | Some(Value::Rational(_))),
+            n3 @ (Value::Int(_) | Value::Rational(_)),
+            incl
+        ) => Ok(Value::Func(mk_numeric_range(n1, n2, n3, incl))),
+        (Value::Char(c1), Some(Value::Char(c2)), Value::Int(n), true) 
+            => Ok(Value::Func(mk_char_range(c1, Some(c2), n))),
+        (Value::Char(c1), None, Value::Int(n), false) 
+            => Ok(Value::Func(mk_char_range(c1, None, n))),
+        _ => Err("Invalid operands for range".into())
+    }
 }

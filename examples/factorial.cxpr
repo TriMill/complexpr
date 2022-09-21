@@ -6,6 +6,6 @@ fn factorial(n) {
     }
 }
 
-for n : range(0, 10) {
+for n: 0..10 {
     println(factorial(n));
 }

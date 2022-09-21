@@ -2,9 +2,9 @@ pub mod io;
 pub mod iter;
 pub mod math;
 
-use std::{rc::Rc, cmp::Ordering, time::{SystemTime, UNIX_EPOCH}, cell::RefCell};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{value::{Value, func::Func}, RuntimeError, env::Environment};
+use crate::{value::Value, RuntimeError, env::Environment};
 
 #[macro_export]
 macro_rules! declare_fn {
@@ -26,8 +26,6 @@ pub fn load(env: &mut Environment) {
     declare_fn!(env, repr, 1);
     declare_fn!(env, ord, 1); 
     declare_fn!(env, chr, 1); 
-    declare_fn!(env, range, 2); 
-    declare_fn!(env, count_by, 2); 
     declare_fn!(env, has, 2); 
     declare_fn!(env, len, 1); 
     declare_fn!(env, time, 0); 
@@ -90,59 +88,6 @@ fn fn_chr(args: Vec<Value>) -> Result<Value, RuntimeError> {
         Err("Argument to chr must be an integer".into())
     }
 }
-
-fn mk_range_inner(start: i64, end: i64, delta: i64) -> Func {
-    let counter = RefCell::new(start);
-    Func::BuiltinClosure {
-        arg_count: 0,
-        func: Rc::new(move |_| {
-            let c_value = *counter.borrow();
-            if delta >= 0 && c_value >= end
-            || delta <= 0 && c_value <= end {
-                Ok(Value::Nil)
-            } else {
-                let res = *counter.borrow();
-                *counter.borrow_mut() += delta;
-                Ok(Value::Int(res))
-            }
-        })
-    }
-}
-
-fn fn_range(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    let (start, end, delta) = match (&args[0], &args[1]) {
-        (Value::Int(a), Value::Int(b)) => (a, b, 
-            match a.cmp(&b) {
-                Ordering::Equal => 0,
-                Ordering::Less => 1,
-                Ordering::Greater => -1,
-            }
-        ),
-        _ => return Err("Both arguments to range must be integers".into())
-    };
-    Ok(Value::Func(mk_range_inner(*start, *end, delta)))
-}
-
-fn mk_countby_inner(start: i64, delta: i64) -> Func {
-    let counter = RefCell::new(start);
-    Func::BuiltinClosure {
-        arg_count: 0,
-        func: Rc::new(move |_| {
-            let res = *counter.borrow();
-            *counter.borrow_mut() += delta;
-            Ok(Value::Int(res))
-        })
-    }
-}
-
-fn fn_count_by(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    let (start, delta) = match (&args[0], &args[1]) {
-        (Value::Int(a), Value::Int(b)) => (a, b),
-        _ => return Err("Both arguments to count_by must be integers".into())
-    };
-    Ok(Value::Func(mk_countby_inner(*start, *delta)))
-}
-
 fn fn_len(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Int(args[0].len().map_err(RuntimeError::new_no_pos)? as i64))
 }

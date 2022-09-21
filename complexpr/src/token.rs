@@ -25,6 +25,8 @@ pub enum TokenType {
     Bang, DoubleAmper, DoublePipe,
     Tilde, Amper, Pipe, 
 
+    DoubleDot,
+
     Equal, PlusEqual, MinusEqual, StarEqual, SlashEqual, PercentEqual, DoubleSlashEqual, CaretEqual,
     DoubleEqual, BangEqual, Greater, GreaterEqual, Less, LessEqual, Spaceship,
 
@@ -64,6 +66,8 @@ impl TokenType {
             Self::DoubleAmper => Some(OpType::LogicalAnd),
             Self::DoublePipe => Some(OpType::LogicalOr),
 
+            Self::DoubleDot => Some(OpType::Range),
+
             _ => None
         }
     }
@@ -78,7 +82,7 @@ impl TokenType {
 
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 pub enum OpType {
-    Assignment, Comparison, Pipeline, Additive, Multiplicative, Exponential, LogicalAnd, LogicalOr
+    Assignment, Comparison, Pipeline, Additive, Multiplicative, Exponential, LogicalAnd, LogicalOr, Range
 }
 
 impl OpType {
