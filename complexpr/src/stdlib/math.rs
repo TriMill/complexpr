@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use num_traits::{ToPrimitive, Pow};
+use num_traits::{ToPrimitive, Pow, Signed};
 
 use crate::{value::{Value, Complex, Rational}, RuntimeError, env::Environment, declare_fn};
 
@@ -25,6 +25,7 @@ pub fn load(env: &mut Environment) {
     declare_fn!(env, im, 1);
     declare_fn!(env, min, 2);
     declare_fn!(env, max, 2);
+    declare_fn!(env, abs, 1);
     declare_fn!(env, floor, 1);
     declare_fn!(env, ceil, 1);
     declare_fn!(env, round, 1);
@@ -43,6 +44,8 @@ pub fn load(env: &mut Environment) {
     declare_fn!(env, atanh, 1);
     declare_fn!(env, exp, 1);
     declare_fn!(env, "log", fn_ln, 1);
+    declare_fn!(env, is_prime, 1);
+    declare_fn!(env, factors, 1);
 }
 
 //
@@ -97,6 +100,19 @@ fn fn_max(args: Vec<Value>) -> Result<Value, RuntimeError> {
         _ => Ok(args[0].clone())
     }
 }
+
+fn fn_abs(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match args[0] {
+        Value::Int(n) => Ok(Value::Int(n.abs())),
+        Value::Float(f) => Ok(Value::Float(f.abs())),
+        Value::Rational(r) => Ok(Value::Rational(r.abs())),
+        _ => Err("Argument to floor must be real".into()),
+    }
+}
+
+//
+// Rounding
+//
 
 fn fn_floor(args: Vec<Value>) -> Result<Value, RuntimeError> {
     match args[0] {
@@ -195,3 +211,67 @@ transcendental!{ acosh }
 transcendental!{ atanh }
 transcendental!{ exp }
 transcendental!{ ln }
+
+//
+// Factorization
+//
+
+fn fn_is_prime(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    let n = match &args[0] {
+        Value::Int(n) => *n,
+        _ => return Err("Argument to is_prime must be an integer".into())
+    };
+    match n {
+        _ if n <= 1 => Ok(Value::Bool(false)),
+        2 | 3 => Ok(Value::Bool(true)),
+        _ if (n % 2 == 0) || (n % 3 == 0) => Ok(Value::Bool(false)),
+        _ => {
+            let mut i = 5;
+            while i*i <= n {
+                if n % i == 0 {
+                    return Ok(Value::Bool(false));
+                }
+                i += 2;
+                if n % i == 0 {
+                    return Ok(Value::Bool(false));
+                }
+                i += 4;
+            }
+            Ok(Value::Bool(true))
+        }
+    }
+}
+
+fn fn_factors(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    let mut n = match &args[0] {
+        Value::Int(n) => n.abs(),
+        _ => return Err("Argument to is_prime must be an integer".into())
+    };
+    if n <= 1 {
+        return Ok(Value::from(vec![]));
+    }
+    let mut factors = vec![];
+    while n % 2 == 0 {
+        factors.push(Value::Int(2));
+        n >>= 1;
+    }
+    while n % 3 == 0 {
+        factors.push(Value::Int(3));
+        n /= 3;
+    }
+    let mut i = 5;
+    while n != 1 {
+        while n % i == 0 {
+            factors.push(Value::Int(i));
+            n /= i;
+        }
+        i += 2;
+        while n % i == 0 {
+            factors.push(Value::Int(i));
+            n /= i;
+        }
+        i += 4;
+    }
+
+    Ok(Value::from(factors))
+}

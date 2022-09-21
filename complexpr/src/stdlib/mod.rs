@@ -21,15 +21,23 @@ macro_rules! declare_fn {
 pub fn load(env: &mut Environment) {
     declare_fn!(env, "type", fn_type, 1);
     declare_fn!(env, type_eq, 1);
+    declare_fn!(env, copy, 1);
     declare_fn!(env, str, 1);
     declare_fn!(env, repr, 1);
     declare_fn!(env, ord, 1); 
     declare_fn!(env, chr, 1); 
     declare_fn!(env, range, 2); 
+    declare_fn!(env, count_by, 2); 
     declare_fn!(env, has, 2); 
     declare_fn!(env, len, 1); 
     declare_fn!(env, time, 0); 
-    declare_fn!(env, list, 1); 
+    declare_fn!(env, list, 1);
+    declare_fn!(env, push, 2);
+    declare_fn!(env, pop, 1);
+    declare_fn!(env, append, 2);
+    declare_fn!(env, insert, 3);
+    declare_fn!(env, remove, 2);
+    
 }
 
 fn fn_type(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -42,6 +50,16 @@ fn fn_type_eq(args: Vec<Value>) -> Result<Value, RuntimeError> {
     } else {
         args[0] == args[1]
     }))
+}
+
+fn fn_copy(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    Ok(match &args[0] {
+        Value::List(l) => Value::from(l.borrow().clone()),
+        Value::Map(m) => Value::from(m.borrow().clone()),
+        // Value::Func(f) => Value::Func(f.make_copy()) // TODO copy functions
+        Value::Data(_) => todo!(),
+        a => a.clone(),
+    })
 }
 
 fn fn_str(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -105,6 +123,26 @@ fn fn_range(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Func(mk_range_inner(*start, *end, delta)))
 }
 
+fn mk_countby_inner(start: i64, delta: i64) -> Func {
+    let counter = RefCell::new(start);
+    Func::BuiltinClosure {
+        arg_count: 0,
+        func: Rc::new(move |_| {
+            let res = *counter.borrow();
+            *counter.borrow_mut() += delta;
+            Ok(Value::Int(res))
+        })
+    }
+}
+
+fn fn_count_by(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    let (start, delta) = match (&args[0], &args[1]) {
+        (Value::Int(a), Value::Int(b)) => (a, b),
+        _ => return Err("Both arguments to count_by must be integers".into())
+    };
+    Ok(Value::Func(mk_countby_inner(*start, *delta)))
+}
+
 fn fn_len(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Int(args[0].len().map_err(RuntimeError::new_no_pos)? as i64))
 }
@@ -126,4 +164,71 @@ fn fn_list(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let mut res = Vec::new();
     for v in a { res.push(v?); }
     Ok(Value::from(res))
+}
+
+fn fn_push(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if let Value::List(l) = &args[0] {
+        l.as_ref().borrow_mut().push(args[1].clone());
+        Ok(Value::Nil)
+    } else{
+        Err("First argument to push must be a list".into())
+    }
+}
+
+fn fn_pop(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if let Value::List(l) = &args[0] {
+        l.as_ref().borrow_mut().pop().ok_or("Pop on empty list".into())
+    } else{
+        Err("First argument to pop must be a list".into())
+    }
+}
+
+fn fn_append(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1]) {
+        (Value::List(a), Value::List(b)) => {
+            let mut newvals = b.borrow().clone();
+            a.borrow_mut().append(&mut newvals);
+            Ok(Value::Nil)
+        },
+        _ => Err("Both arguments to append must be lists".into())
+    }
+}
+
+fn fn_insert(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1]) {
+        (Value::List(a), Value::Int(i)) => {
+            if *i < 0 {
+                return Err(format!("List index {} cannot be negative", i).into())
+            }
+            if *i > a.borrow().len() as i64 {
+                return Err(format!("List index {} not valid for list of length {}", i, a.borrow().len()).into())
+            }
+            a.borrow_mut().insert(*i as usize, args[2].clone());
+            Ok(Value::Nil)
+        },
+        (Value::Map(a), b) => {
+            Ok(a.borrow_mut().insert(b.clone(), args[3].clone()).unwrap_or(Value::Nil))
+        },
+        (Value::List(_), _) => Err("Second argument to insert must be an integer when the first is a list".into()),
+        _ => Err("First argument to insert must be a list or map".into()),
+    }
+}
+
+fn fn_remove(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1]) {
+        (Value::List(a), Value::Int(i)) => {
+            if *i < 0 {
+                return Err(format!("List index {} cannot be negative", i).into())
+            }
+            if *i >= a.borrow().len() as i64 {
+                return Err(format!("List index {} not valid for list of length {}", i, a.borrow().len()).into())
+            }
+            Ok(a.borrow_mut().remove(*i as usize))
+        },
+        (Value::Map(a), b) => {
+            Ok(a.borrow_mut().remove(b).unwrap_or(Value::Nil))
+        },
+        (Value::List(_), _) => Err("Second argument to remove must be an integer when the first is a list".into()),
+        _ => Err("First argument to remove must be a list or map".into()),
+    }
 }

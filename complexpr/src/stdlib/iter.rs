@@ -7,6 +7,9 @@ pub fn load(env: &mut Environment) {
     declare_fn!(env, skip, 2);
     declare_fn!(env, forall, 2);
     declare_fn!(env, exists, 2);
+    declare_fn!(env, nth, 2);
+    declare_fn!(env, last, 1);
+    declare_fn!(env, void, 1);
 }
 
 fn fn_take(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -75,4 +78,21 @@ fn fn_exists(args: Vec<Value>) -> Result<Value, RuntimeError> {
         }
     }
     Ok(Value::Bool(false))
+}
+
+fn fn_nth(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Int(n) if *n < 0 => Err("First argument to nth must be positive".into()),
+        Value::Int(n) => args[1].iter()?.nth(*n as usize).unwrap_or(Ok(Value::Nil)),
+        _ => Err("First argument to nth must be an integer".into())
+    }
+}
+
+fn fn_last(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    args[0].iter()?.last().unwrap_or(Ok(Value::Nil))
+}
+
+fn fn_void(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    for _ in args[0].iter()? {}
+    Ok(Value::Nil)
 }

@@ -1,0 +1,7 @@
+# compute the primorial of n - the product of all primes <= n
+fn primorial(n) {
+    return range(2,n+1) |? is_prime |// fn(x,y) { return x*y; };
+}
+
+println(primorial(10)); # 2*3*5*7 = 210
+println(primorial(20)); # 2*3*5*7*11*13*17*19 = 9699690
