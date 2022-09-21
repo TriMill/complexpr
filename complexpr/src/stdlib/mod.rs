@@ -61,11 +61,11 @@ fn fn_copy(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 fn fn_str(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    Ok(Value::String(args[0].to_string()))
+    Ok(Value::from(args[0].to_string()))
 }
 
 fn fn_repr(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    Ok(Value::String(args[0].repr()))
+    Ok(Value::from(args[0].repr()))
 }
 
 fn fn_ord(args: Vec<Value>) -> Result<Value, RuntimeError> {

@@ -1,4 +1,6 @@
-use crate::{token::{Token, TokenType, OpType}, ParserError, expr::{Stmt, Expr}, value};
+use std::rc::Rc;
+
+use crate::{token::{Token, TokenType, OpType}, ParserError, expr::{Stmt, Expr}, value::{self, func::Func}, eval::eval_standard_binary};
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -400,6 +402,7 @@ impl Parser {
         }
     }
 
+    // unary: !x, -x
     fn unary(&mut self) -> Result<Expr, ParserError> {
         self.err_on_eof()?;
         if matches!(self.peek().ty, TokenType::Bang | TokenType::Minus) {
@@ -410,6 +413,7 @@ impl Parser {
         }
     }
 
+    // function calls and array access
     fn fncall(&mut self) -> Result<Expr, ParserError> {
         let mut expr = self.expr_base()?;
         while !self.at_end() {
@@ -422,12 +426,14 @@ impl Parser {
         Ok(expr)
     }
 
+    // function call: a(b)
     fn fncall_inner(&mut self, expr: Expr) -> Result<Expr, ParserError> {
         let lparen = self.next();
         let args = self.commalist(TokenType::RParen, Self::assignment)?;
         Ok(Expr::FuncCall { func: Box::new(expr), args, pos: lparen.pos })
     }
 
+    // array index: a[b]
     fn arrindex_inner(&mut self, expr: Expr) -> Result<Expr, ParserError> {
         let lbrack = self.next();
         let index = self.assignment()?;
@@ -438,6 +444,7 @@ impl Parser {
         Ok(Expr::Index { lhs: Box::new(expr), index: Box::new(index), pos: lbrack.pos })
     }
 
+    // key-value pairs for maps
     fn kv_pair(&mut self) -> Result<(Expr, Expr), ParserError> {
         let key = self.assignment()?;
         self.err_on_eof()?;
@@ -449,6 +456,7 @@ impl Parser {
         Ok((key, value))
     }
 
+    // After infix operators, unary operators, function calls, and array indexes have been parsed
     fn expr_base(&mut self) -> Result<Expr, ParserError> {
         self.err_on_eof()?;
         let next = self.next();
@@ -457,10 +465,29 @@ impl Parser {
             | TokenType::Int(_) | TokenType::Float(_) | TokenType::ImFloat(_)
             | TokenType::String(_) | TokenType::Char(_)
         ) {
+            // A literal value
             Ok(Expr::Literal { value: next })
         } else if let TokenType::Ident(..) = next.ty {
+            // An identifier
             Ok(Expr::Ident { value: next })
         } else if next.ty == TokenType::LParen {
+            // Special case for "boxed infix operators"
+            if !self.at_end() && self.peek().ty.is_infix_op() {
+                let op = self.next();
+                self.err_on_eof()?;
+                if self.peek().ty != TokenType::RParen {
+                    return Err(self.mk_error("Expected right parenthesis after enclosed operator"))
+                }
+                self.next();
+                let func = Func::BuiltinClosure {
+                    arg_count: 2,
+                    func: Rc::new(move |args| {
+                        eval_standard_binary(args[0].clone(), args[1].clone(), &op.ty, &op.pos)
+                    })
+                };
+                return Ok(Expr::BoxedInfix { func })
+            }
+            // general case: parentheses as grouping symbols
             let expr = self.assignment()?;
             if self.at_end() || TokenType::RParen != self.next().ty {
                 Err(self.mk_error("Left parenthesis never closed"))
@@ -468,12 +495,15 @@ impl Parser {
                 Ok(expr)
             }
         } else if next.ty == TokenType::LBrack {
+            // list literal
             let items = self.commalist(TokenType::RBrack, Self::assignment)?;
             Ok(Expr::List { items })
         } else if next.ty == TokenType::LBrace {
+            // map literal
             let items = self.commalist(TokenType::RBrace, Self::kv_pair)?;
             Ok(Expr::Map { items })
         } else if next.ty == TokenType::Fn {
+            // anonymous (lambda) function definition
             self.err_on_eof()?;
             if !self.expect(TokenType::LParen).0 {
                 return Err(self.mk_error("Expected left parenthesis to start arguments list"))

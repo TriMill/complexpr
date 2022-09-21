@@ -1,5 +1,6 @@
 use std::{rc::Rc, collections::HashMap, ops::*, cmp::Ordering, cell::RefCell, hash::Hash, sync::atomic::{AtomicUsize, self}};
 
+use either::Either;
 use num_traits::{Zero, ToPrimitive, Pow};
 use strum::{EnumCount, EnumDiscriminants, EnumIter, IntoEnumIterator, AsRefStr};
 
@@ -40,6 +41,73 @@ pub fn generate_builtin_types() -> Vec<Type> {
         })
     }
     types
+}
+
+fn fmt_list(list: &Vec<Value>) -> String {
+    let mut result: String = "[".into();
+    for v in list {
+        result += &(v.repr() + ", ");
+    }
+    result.pop();
+    result.pop();
+    result + "]"
+}
+
+fn fmt_map(map: &HashMap<Value, Value>) -> String {
+    let mut result: String = "{".into();
+    for (k, v) in map {
+        result += &(k.repr() + ": " + &v.repr() + ", ");
+    }
+    result.pop();
+    result.pop();
+    result + "}"
+}
+
+enum EscapeResult { Char(char), Str(&'static str), String(String) }
+
+fn escape_char(c: char, is_char: bool) -> EscapeResult {
+    match c {
+        '\0' => EscapeResult::Str("\\0"),
+        '\n' => EscapeResult::Str("\\n"),
+        '\r' => EscapeResult::Str("\\r"),
+        '\t' => EscapeResult::Str("\\t"),
+        '\x1b' => EscapeResult::Str("\\e"),
+        '\\' if is_char => EscapeResult::Str("\\\\"),
+        '\'' if is_char => EscapeResult::Str("\\'"),
+        '"' if !is_char => EscapeResult::Str("\\\""),
+        _ if c.is_control() => {
+            if c <= '\u{ff}' {
+                EscapeResult::String(format!("\\x{:02x}", c as u32))
+            } else {
+                EscapeResult::String(format!("\\u{{{:06x}}}", c as u32))
+            }
+        }
+        _ => EscapeResult::Char(c)
+    }
+}
+
+fn repr_string(s: &str) -> String {
+    let mut result: String = "\"".into();
+    for c in s.chars() {
+        match escape_char(c, false) {
+            EscapeResult::Char(c) => result.push(c),
+            EscapeResult::Str(s) => result += s,
+            EscapeResult::String(s) => result += &s,
+        }
+    }
+    result.push('"');
+    result
+}
+
+fn repr_char(c: char) -> String {
+    let mut result: String = "'".into();
+    match escape_char(c, true) {
+        EscapeResult::Char(c) => result.push(c),
+        EscapeResult::Str(s) => result += s,
+        EscapeResult::String(s) => result += &s
+    }
+    result.push('\'');
+    result
 }
 
 #[derive(Clone, Debug)]
@@ -91,52 +159,50 @@ impl Value {
                     Err("Only zero-argument functions can be used as iterators".into())
                 }
             },
-            v => Err(format!("{:?} is not iterable", v))
+            v => Err(format!("{} is not iterable", v.repr()))
         }
     }
 
     pub fn as_func(&self) -> Result<&Func, String> {
         match self {
             Value::Func(f) => Ok(f),
-            v => Err(format!("{:?} is not a function", v))
+            v => Err(format!("{} is not a function", v.repr()))
         }
     }
 
-    pub fn to_string(&self) -> Rc<str> {
+    pub fn to_string(&self) -> String {
         match self {
-            Self::Nil => Rc::from("nil"),
-            Self::Bool(b) => Rc::from(b.to_string()),
-            Self::Int(n) => Rc::from(n.to_string()),
-            Self::Float(f) => Rc::from(f.to_string()),
-            Self::Rational(r) => Rc::from(r.to_string()),
-            Self::Complex(z) => Rc::from(z.to_string()),
-            Self::Char(c) => Rc::from(c.to_string()),
-            Self::String(s) => s.clone(),
-            Self::List(l) => Rc::from(format!("{:?}", l)), // TODO fix
-            Self::Map(m) => Rc::from(format!("{:?}", m)), // TODO fix
-            Self::Type(t) => Rc::from(format!("<type {}>", t.name)),
-            Self::Func(Func::Builtin { name, func, .. }) => Rc::from(format!("<builtin fn {} at {:?}>", name, *func as *const ())),
-            Self::Func(Func::BuiltinClosure { .. }) => Rc::from(format!("<builtin anonymous fn>")),
+            Self::Nil => "nil".into(),
+            Self::Bool(b) => b.to_string(),
+            Self::Int(n) => n.to_string(),
+            Self::Float(f) => f.to_string(),
+            Self::Rational(r) => r.to_string(),
+            Self::Complex(z) => z.to_string(),
+            Self::Char(c) => c.to_string(),
+            Self::String(s) => s.as_ref().to_owned(),
+            Self::List(l) => fmt_list(&l.borrow()),
+            Self::Map(m) => fmt_map(&m.borrow()),
+            Self::Type(t) => format!("<type {}>", t.name),
+            Self::Func(Func::Builtin { name, func, .. }) => format!("<builtin fn {} at {:?}>", name, *func as *const ()),
+            Self::Func(Func::BuiltinClosure { .. }) => format!("<builtin anonymous fn>"),
             Self::Func(f @ Func::Partial { .. }) => match f.name() {
-                Some(name) => Rc::from(format!("<partial of fn {}>", name)),
-                None => Rc::from("<partial of anonymous fn>"),
+                Some(name) => format!("<partial of fn {}>", name),
+                None => "<partial of anonymous fn>".into(),
             }
             Self::Func(Func::Func { name, .. }) => match name {
-                Some(name) => Rc::from(format!("<fn {}>", name)),
-                None => Rc::from("<anonymous fn>"),
+                Some(name) => format!("<fn {}>", name),
+                None => "<anonymous fn>".into(),
             },
             Self::Data(_) => todo!(),
         }
     }
     
-    pub fn repr(&self) -> Rc<str> {
+    pub fn repr(&self) -> String {
         match self {
-            Self::Float(f) => Rc::from(format!("{:?}",f)),
-            Self::Rational(r) => Rc::from(r.numer().to_string() + "//" + &r.denom().to_string()),
-            Self::Char(c) => Rc::from(format!("'{}'", c)), // TODO escaping
-            Self::String(s) => Rc::from(format!("\"{}\"", s)), // TODO escaping
-            Self::List(l) => Rc::from(format!("{:?}", l.borrow())), // TODO fix
-            Self::Map(m) => Rc::from(format!("{:?}", m)), // TODO fix
+            Self::Float(f) => format!("{:?}",f),
+            Self::Rational(r) => r.numer().to_string() + "//" + &r.denom().to_string(),
+            Self::Char(c) => repr_char(*c),
+            Self::String(s) => repr_string(s),
             _ => self.to_string(),
         }
     }
@@ -148,17 +214,17 @@ impl Value {
                     .ok_or_else(|| format!("String index {} out of bounds for length {}", i, s.chars().count()))
                     .map(Value::Char),
                 Value::Int(i) => Err(format!("String index {} cannot be negative", i)),
-                _ => Err(format!("Cannot index {:?} with {:?}", self, idx))
+                _ => Err(format!("Cannot index {} with {}", self.repr(), idx.repr()))
             },
             Self::List(l) => match idx {
                 Value::Int(i) if *i >= 0 => l.borrow().get(*i as usize)
                     .ok_or_else(|| format!("List index {} out of bounds for length {}", i, l.borrow().len()))
                     .map(|v| v.clone()),
                 Value::Int(i) => Err(format!("List index {} cannot be negative", i)),
-                _ => Err(format!("Cannot index {:?} with {:?}", self, idx))
+                _ => Err(format!("Cannot index {} with {}", self.repr(), idx.repr()))
             }
-            Self::Map(m) => m.borrow().get(idx).cloned().ok_or_else(|| format!("Map does not contain key {:?}", idx)),
-            v => Err(format!("Cannot index into {:?}", v))
+            Self::Map(m) => m.borrow().get(idx).cloned().ok_or_else(|| format!("Map does not contain key {}", idx.repr())),
+            v => Err(format!("Cannot index into {}", v.repr()))
         }
     }
 
@@ -171,13 +237,13 @@ impl Value {
                 }
                 Value::Int(i) if *i >= 0 => Err(format!("List index {} out of bounds for length {}", i, l.borrow().len())),
                 Value::Int(i) => Err(format!("List index {} cannot be negative", i)),
-                _ => Err(format!("Cannot index {:?} with {:?}", self, idx))
+                _ => Err(format!("Cannot index {} with {}", self.repr(), idx.repr()))
             }
             Self::Map(m) => {
                 m.borrow_mut().insert(idx.clone(), value); 
                 Ok(())
             }
-            v => Err(format!("Cannot assign to index in {:?}", v))
+            v => Err(format!("Cannot assign to index in {}", v.repr()))
         }
     }
 
@@ -186,7 +252,7 @@ impl Value {
             Value::String(s) => Ok(s.len()),
             Value::List(l) => Ok(l.borrow().len()),
             Value::Map(m) => Ok(m.borrow().len()),
-            v => Err(format!("{:?} has no length", v))
+            v => Err(format!("{} has no length", v.repr()))
         }
     }
     
@@ -205,7 +271,7 @@ impl Value {
             (Rational(a), Int(b)) => Ok(Value::from(a/b)),
             (Int(a), Rational(b)) => Ok(Value::from(b.recip()*a)),
             (Rational(a), Rational(b)) => Ok(Value::from(a/b)),
-            (x,y) => Err(format!("Unsupported operation 'fracdiv' between {:?} and {:?}", x, y))
+            (x,y) => Err(format!("Unsupported operation 'fracdiv' between {} and {}", x.repr(), y.repr()))
         }
     }
     
@@ -400,7 +466,7 @@ macro_rules! impl_numeric_op {
                     (Rational(a), Complex(b))  => Ok(self::Complex::from(a.to_f64().ok_or(RATIO_CAST_FAIL)?).$fnname(b).into()),
                     (Complex(a),  Rational(b)) => Ok(a.$fnname(self::Complex::from(b.to_f64().ok_or(RATIO_CAST_FAIL)?)).into()),
                     (Complex(a),  Complex(b))  => Ok(a.$fnname(b).into()),
-                    (lhs, rhs) => Err(format!("Unsupported operation '{}' between {:?} and {:?}", stringify!($fnname), lhs, rhs))
+                    (lhs, rhs) => Err(format!("Unsupported operation '{}' between {} and {}", stringify!($fnname), lhs.repr(), rhs.repr()))
                 }
             }
         }
@@ -415,7 +481,7 @@ impl Neg for Value {
             Value::Float(a) => Ok(Value::Float(-a)),
             Value::Rational(a) => Ok(Value::Rational(-a)),
             Value::Complex(a) => Ok(Value::Complex(-a)),
-            _ => Err(format!("Unsupported operation 'neg' on {:?}", self))
+            _ => Err(format!("Unsupported operation 'neg' on {}", self.repr()))
         }
     }
 }
@@ -490,7 +556,7 @@ impl Pow<&Value> for &Value {
             (Rational(a), Complex(b))  => Ok(self::Complex::from(a.to_f64().ok_or(RATIO_CAST_FAIL)?).pow(b).into()),
             (Complex(a),  Rational(b)) => Ok(a.pow(self::Complex::from(b.to_f64().ok_or(RATIO_CAST_FAIL)?)).into()),
             (Complex(a),  Complex(b))  => Ok(a.pow(b).into()),
-            (lhs, rhs) => Err(format!("Unsupported operation 'pow' between {:?} and {:?}", lhs, rhs))
+            (lhs, rhs) => Err(format!("Unsupported operation 'pow' between {} and {}", lhs.repr(), rhs.repr()))
         }
     }
 }

@@ -36,6 +36,10 @@ impl From<RuntimeError> for Unwind {
     }
 }
 
+//
+// Statements
+//
+
 fn unwrap_ident_token(tok: &Token) -> &Rc<str> {
     if let Token { ty: TokenType::Ident(s),.. } = tok {
         s
@@ -128,21 +132,33 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), Unwind> {
     Ok(())
 }
 
+//
+// Expressions
+//
+
 pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
     match expr {
         Expr::Literal { value } => Ok(eval_literal(value)),
         Expr::Ident { value } => eval_ident(value, env),
         Expr::Binary { lhs, rhs, op } => match op.ty.get_op_type() {
+            Some(OpType::Additive) 
+            | Some(OpType::Multiplicative) 
+            | Some(OpType::Exponential)
+            | Some(OpType::Comparison) => {
+                let l = eval_expr(lhs, env.clone())?;
+                let r = eval_expr(rhs, env)?;
+                eval_standard_binary(l, r, &op.ty, &op.pos)
+            },
             Some(OpType::Assignment) 
                 => eval_assignment(lhs, rhs, op, env),
-            Some(OpType::Additive) | Some(OpType::Multiplicative) | Some(OpType::Exponential)
-                => eval_arith(lhs, rhs, op, env),
             Some(OpType::LogicalAnd) | Some(OpType::LogicalOr)
                 => eval_boolean(lhs, rhs, op, env),
-            Some(OpType::Comparison)
-                => eval_comp(lhs, rhs, op, env),
-            Some(OpType::Pipeline)
-                => eval_pipeline(lhs, rhs, op, env),
+            Some(OpType::Pipeline) => {
+                let l = eval_expr(lhs, env.clone())?;
+                let r = eval_expr(rhs, env)?;
+                let f = r.as_func().map_err(|e| RuntimeError::new(e, op.pos.clone()))?;
+                eval_pipeline(l, f, op).map_err(exit_pipe(&op.pos))
+            }
             o => todo!("{:?}", o) // TODO other operations
         },
         Expr::Ternary { arg1, arg2, arg3, op } => eval_ternary(arg1, arg2, arg3, op, env),
@@ -152,6 +168,7 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
                 end.as_ref().map(|x| x.as_ref()), 
                 step.as_ref().map(|x| x.as_ref()), 
                 *incl, env),
+        Expr::BoxedInfix { func } => Ok(Value::Func(func.clone())),
         Expr::List { items } => {
             let mut list = Vec::with_capacity(items.len());
             for item in items {
@@ -275,10 +292,9 @@ pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Resul
     }
 }
 
-pub fn eval_arith(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
-    let l = eval_expr(lhs, env.clone())?;
-    let r = eval_expr(rhs, env)?;
-    match op.ty {
+pub fn eval_standard_binary(l: Value, r: Value, opty: &TokenType, pos: &Position) -> Result<Value, RuntimeError> {
+    let mk_err = || format!("Cannot compare {:?} with {:?}", l, r);
+    match opty {
         TokenType::Plus => &l + &r,
         TokenType::Minus => &l - &r,
         TokenType::Star => &l * &r,
@@ -286,35 +302,6 @@ pub fn eval_arith(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Val
         TokenType::Percent => &l % &r,
         TokenType::Caret => l.pow(&r),
         TokenType::DoubleSlash => l.fracdiv(&r),
-        _ => todo!()
-    }.map_err(|e| RuntimeError::new(e, op.pos.clone()))
-}
-
-pub fn eval_boolean(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
-    let l = eval_expr(lhs, env.clone())?;
-    match op.ty {
-        TokenType::DoubleAmper => if l.truthy() {
-            eval_expr(rhs, env)
-        } else { 
-            Ok(l)
-        },
-        TokenType::DoublePipe => if !l.truthy() {
-            eval_expr(rhs, env)
-        } else { 
-            Ok(l)
-        },
-        _ => unreachable!()
-    }
-}
-
-pub fn eval_comp(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
-    let l = eval_expr(lhs, env.clone())?;
-    let r = eval_expr(rhs, env)?;
-    let mk_err = || RuntimeError::new(
-        format!("Cannot compare {:?} with {:?}", l, r),
-        op.pos.clone()
-    );
-    match op.ty {
         TokenType::DoubleEqual => Ok(Value::Bool(l == r)),
         TokenType::BangEqual => Ok(Value::Bool(l != r)),
         TokenType::Greater => l.partial_cmp(&r)
@@ -332,6 +319,23 @@ pub fn eval_comp(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Valu
         TokenType::Spaceship => l.partial_cmp(&r)
             .ok_or_else(mk_err)
             .map(|o| Value::from(o as i8)),
+        _ => unreachable!()
+    }.map_err(|e| RuntimeError::new(e, pos.clone()))
+}
+
+pub fn eval_boolean(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
+    let l = eval_expr(lhs, env.clone())?;
+    match op.ty {
+        TokenType::DoubleAmper => if l.truthy() {
+            eval_expr(rhs, env)
+        } else { 
+            Ok(l)
+        },
+        TokenType::DoublePipe => if !l.truthy() {
+            eval_expr(rhs, env)
+        } else { 
+            Ok(l)
+        },
         _ => unreachable!()
     }
 }
@@ -371,16 +375,8 @@ fn mk_pipequestion_inner(f: Func, it: CIterator) -> Func {
     }
 }
 
-
-pub fn eval_pipeline(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
-    let l = eval_expr(lhs, env.clone())?;
-    let r = eval_expr(rhs, env)?;
-    let f = r.as_func().map_err(|e| RuntimeError::new(e, op.pos.clone()))?;
-    eval_pipeline_inner(l, f, op).map_err(exit_pipe(&op.pos))
-}
-
 #[allow(clippy::needless_collect)] // collect is necesary to allow for rev() call
-fn eval_pipeline_inner(l: Value, r: &Func, op: &Token) -> Result<Value, RuntimeError> {
+fn eval_pipeline(l: Value, r: &Func, op: &Token) -> Result<Value, RuntimeError> {
     match op.ty {
         TokenType::PipePoint => r.call(vec![l]),
         TokenType::PipeColon => Ok(Value::Func(mk_pipecolon_inner(r.clone(), l.iter()?))),

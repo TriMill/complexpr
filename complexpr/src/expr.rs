@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{token::{Token, OpType}, Position, value::Type};
+use crate::{token::{Token, OpType}, Position, value::{Type, func::Func}};
 
 #[derive(Clone)]
 pub enum Stmt {
@@ -41,6 +41,7 @@ pub enum Expr {
     Ternary { arg1: Box<Expr>, arg2: Box<Expr>, arg3: Box<Expr>, op: Token },
     Unary { arg: Box<Expr>, op: Token },
     Range { start: Box<Expr>, end: Option<Box<Expr>>, step: Option<Box<Expr>>, incl: bool },
+    BoxedInfix { func: Func },
     Ident { value: Token },
     Literal { value: Token },
     List { items: Vec<Expr> },
@@ -57,6 +58,7 @@ impl fmt::Debug for Expr {
             Self::Ternary { arg1, arg2, arg3, op} => write!(f, "({:?} {:?} {:?} {:?})", op, arg1, arg2, arg3),
             Self::Unary { arg, op } => write!(f, "({:?} {:?})", op, arg),
             Self::Range { start, end, step, incl } => write!(f, "(range {:?}..{:?} step {:?} incl {:?})", start, end, step, incl),
+            Self::BoxedInfix { func } => write!(f, "(boxed-infix {:?})", func),
             Self::Ident { value } => write!(f, "(ident {:?})", value),
             Self::Literal { value } => write!(f, "(lit {:?})", value),
             Self::List { items } => write!(f, "(list {:?})", items),

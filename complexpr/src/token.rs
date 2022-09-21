@@ -66,8 +66,6 @@ impl TokenType {
             Self::DoubleAmper => Some(OpType::LogicalAnd),
             Self::DoublePipe => Some(OpType::LogicalOr),
 
-            Self::DoubleDot => Some(OpType::Range),
-
             _ => None
         }
     }
@@ -78,11 +76,21 @@ impl TokenType {
             _ => None
         }
     }
+
+    pub fn is_infix_op(&self) -> bool {
+        matches!(self.get_op_type(), Some(
+            OpType::Additive
+            | OpType::Multiplicative
+            | OpType::Exponential
+            | OpType::Comparison
+            // TODO | OpType::Pipeline
+        ))
+    }
 }
 
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 pub enum OpType {
-    Assignment, Comparison, Pipeline, Additive, Multiplicative, Exponential, LogicalAnd, LogicalOr, Range
+    Assignment, Comparison, Pipeline, Additive, Multiplicative, Exponential, LogicalAnd, LogicalOr
 }
 
 impl OpType {
