@@ -25,7 +25,7 @@ pub enum TokenType {
     Bang, DoubleAmper, DoublePipe,
     Tilde, Amper, Pipe, 
 
-    DoubleDot,
+    Dot, DoubleDot,
 
     Equal, PlusEqual, MinusEqual, StarEqual, SlashEqual, PercentEqual, DoubleSlashEqual, CaretEqual,
     DoubleEqual, BangEqual, Greater, GreaterEqual, Less, LessEqual, Spaceship,

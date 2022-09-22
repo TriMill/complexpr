@@ -55,7 +55,7 @@ fn fn_copy(args: Vec<Value>) -> Result<Value, RuntimeError> {
         Value::List(l) => Value::from(l.borrow().clone()),
         Value::Map(m) => Value::from(m.borrow().clone()),
         // Value::Func(f) => Value::Func(f.make_copy()) // TODO copy functions
-        Value::Data(_) => todo!(),
+        Value::Struct(_) => todo!(),
         a => a.clone(),
     })
 }

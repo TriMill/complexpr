@@ -150,7 +150,7 @@ impl Lexer {
             match self.next() {
                 '.' => match self.expect(&['.']) {
                     Some('.') => self.add_token(TokenType::DoubleDot, ".."),
-                    _ => return Err(self.mk_error("Expected '.' after previous '.'"))
+                    _ => self.add_token(TokenType::Dot, ".")
                 },
                 '+' => match self.expect(&['=']) {
                     Some('=') => self.add_token(TokenType::PlusEqual, "+="),

@@ -11,10 +11,18 @@ pub type Rational = num_rational::Ratio<i64>;
 pub type Complex = num_complex::Complex64;
 
 static TYPE_COUNTER: AtomicUsize = AtomicUsize::new(Value::COUNT);
-#[derive(Clone, Debug, Eq)]
+
+#[derive(Clone, Debug)]
+pub enum TypeData {
+    None,
+    StructFields(Rc<Vec<String>>),
+}
+
+#[derive(Clone, Debug)]
 pub struct Type {
     pub name: Rc<str>,
-    pub id: usize
+    pub id: usize,
+    pub typedata: TypeData
 }
 
 impl PartialEq for Type {
@@ -23,11 +31,13 @@ impl PartialEq for Type {
     }
 }
 
+impl Eq for Type {}
 
-pub fn generate_type(name: Rc<str>) -> Type {
+pub fn generate_struct_type(name: Rc<str>, fields: Vec<String>) -> Type {
     Type { 
         name, 
-        id: TYPE_COUNTER.fetch_add(1, atomic::Ordering::Relaxed) 
+        id: TYPE_COUNTER.fetch_add(1, atomic::Ordering::Relaxed),
+        typedata: TypeData::StructFields(Rc::new(fields))
     }
 }
 
@@ -37,6 +47,7 @@ pub fn generate_builtin_types() -> Vec<Type> {
         types.push(Type {
             name: Rc::from(x.as_ref()),
             id: x as usize,
+            typedata: TypeData::None,
         })
     }
     types
@@ -112,7 +123,7 @@ fn repr_char(c: char) -> String {
 #[derive(Clone, Debug)]
 pub struct CxprStruct {
     pub ty: Type,
-    pub data: Vec<Value>,
+    pub data: Rc<RefCell<HashMap<String, Value>>>,
 }
 
 #[derive(Clone, Debug, EnumCount, EnumDiscriminants)]
@@ -128,7 +139,7 @@ pub enum Value {
     List(Rc<RefCell<Vec<Value>>>), 
     Map(Rc<RefCell<HashMap<Value,Value>>>),
     Func(Func),
-    Data(CxprStruct),
+    Struct(CxprStruct),
 }
 
 impl Value {
@@ -192,7 +203,10 @@ impl Value {
                 Some(name) => format!("<fn {}>", name),
                 None => "<anonymous fn>".into(),
             },
-            Self::Data(_) => todo!(),
+            Self::Struct(CxprStruct { ty, data }) 
+                => format!("{} {{ {} }}", ty.name, 
+                    data.borrow().iter().map(|(k, v)| format!("{}: {}", k, v.repr()))
+                        .collect::<Vec<String>>().join(", "))
         }
     }
     
@@ -276,12 +290,13 @@ impl Value {
     
     pub fn get_type(&self) -> Type {
         let discr = ValueDiscriminants::from(self);
-        if let Self::Data(_) = self {
+        if let Self::Struct(_) = self {
             todo!()
         } else {
             Type {
                 name: Rc::from(discr.as_ref()),
-                id: discr as usize
+                id: discr as usize,
+                typedata: TypeData::None,
             }
         }
     }
@@ -336,7 +351,7 @@ impl PartialEq for Value {
                 ) => (*f1 as *const ()) == (*f2 as *const ()) && c1 == c2,
                  _ => false
             }
-            (Self::Data(_), Self::Data(_)) => todo!("Can't compare data yet"),
+            (Self::Struct(_), Self::Struct(_)) => todo!("Can't compare data yet"),
             _ => false
         }
     }
@@ -399,7 +414,7 @@ impl Hash for Value {
             Self::List(l) => l.borrow().hash(state),
             Self::Map(_) => todo!(),
             Self::Func(f) => f.hash(state),
-            Self::Data(_) => todo!(),
+            Self::Struct(_) => todo!(),
 
         }
     }

@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, rc::Rc};
 
 use crate::{token::{Token, OpType}, Position, value::{Type, func::Func}};
 
@@ -14,7 +14,7 @@ pub enum Stmt {
     Continue { pos: Position },
     Return { pos: Position, expr: Expr },
     Fn { name: Token, args: Vec<Token>, body: Box<Stmt> },
-    Struct { name: Token, ty: Type, items: Vec<Token> }
+    StructDef { name: Token, ty: Type },
 }
 
 impl fmt::Debug for Stmt {
@@ -30,7 +30,7 @@ impl fmt::Debug for Stmt {
             Self::Continue { .. } => write!(f, "(continue)"),
             Self::Return { expr, .. } => write!(f, "(return {:?})", expr),
             Self::Fn { name, args, body } => write!(f, "(fn {:?} {:?} {:?})", name, args, body),
-            Self::Struct { name, ty, items } => write!(f, "(struct {:?} #{:?} {:?})", name, ty.id, items),
+            Self::StructDef { name, ty } => write!(f, "(struct {:?} #{:?})", name, ty.id),
         }
     }
 }
@@ -41,14 +41,16 @@ pub enum Expr {
     Ternary { arg1: Box<Expr>, arg2: Box<Expr>, arg3: Box<Expr>, op: Token },
     Unary { arg: Box<Expr>, op: Token },
     Range { start: Box<Expr>, end: Option<Box<Expr>>, step: Option<Box<Expr>>, incl: bool },
+    FieldAccess { target: Box<Expr>, name: Rc<str>, pos: Position },
     BoxedInfix { func: Func },
     Ident { value: Token },
     Literal { value: Token },
     List { items: Vec<Expr> },
     Map { items: Vec<(Expr,Expr)> },
+    Fn { args: Vec<Token>, body: Box<Stmt> },
     FuncCall { func: Box<Expr>, args: Vec<Expr>, pos: Position },
     Index { lhs: Box<Expr>, index: Box<Expr>, pos: Position },
-    Fn { args: Vec<Token>, body: Box<Stmt> },
+    StructInit { ty: Box<Expr>, args: Vec<Expr>, pos: Position },
 }
 
 impl fmt::Debug for Expr {
@@ -58,6 +60,7 @@ impl fmt::Debug for Expr {
             Self::Ternary { arg1, arg2, arg3, op} => write!(f, "({:?} {:?} {:?} {:?})", op, arg1, arg2, arg3),
             Self::Unary { arg, op } => write!(f, "({:?} {:?})", op, arg),
             Self::Range { start, end, step, incl } => write!(f, "(range {:?}..{:?} step {:?} incl {:?})", start, end, step, incl),
+            Self::FieldAccess { target, name, .. } => write!(f, "(fieldaccess {:?} {:?})", target, name),
             Self::BoxedInfix { func } => write!(f, "(boxed-infix {:?})", func),
             Self::Ident { value } => write!(f, "(ident {:?})", value),
             Self::Literal { value } => write!(f, "(lit {:?})", value),
@@ -65,14 +68,15 @@ impl fmt::Debug for Expr {
             Self::Map { items } => write!(f, "(map {:?})", items),
             Self::FuncCall { func, args, .. } => write!(f, "(call {:?} {:?})", func, args),
             Self::Index { lhs, index, .. } => write!(f, "(index {:?} {:?})", lhs, index),
-            Self::Fn { args, body } => write!(f, "(fn {:?} {:?})", args, body)
+            Self::Fn { args, body } => write!(f, "(fn {:?} {:?})", args, body),
+            Self::StructInit { ty, args, .. } => write!(f, "(mk-struct {:?} {:?})", ty, args),
         }
     }
 }
 
 impl Expr {
     pub fn is_lvalue(&self) -> bool {
-        matches!(self, Expr::Ident{..} | Expr::Index{..})
+        matches!(self, Expr::Ident{..} | Expr::Index{..} | Expr::FieldAccess{..})
     }
 
     pub fn is_assignment(&self) -> bool {

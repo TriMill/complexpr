@@ -273,8 +273,8 @@ impl Parser {
         }
         self.err_on_eof()?;
         let items = self.commalist(TokenType::RBrace, Self::ident)?;
-        let ty = value::generate_type(name);
-        Ok(Stmt::Struct { name: tok_name, ty, items })
+        let ty = value::generate_struct_type(name, items.iter().map(|x| x.ty.clone().as_ident().unwrap().to_string()).collect());
+        Ok(Stmt::StructDef { name: tok_name, ty })
     }
 
     ///////////////////
@@ -407,19 +407,33 @@ impl Parser {
         self.err_on_eof()?;
         if matches!(self.peek().ty, TokenType::Bang | TokenType::Minus) {
             let op = self.next();
-            Ok(Expr::Unary { arg: Box::new(self.fncall()?), op })
+            Ok(Expr::Unary { arg: Box::new(self.fieldaccess()?), op })
         } else {
-            self.fncall()
+            self.fieldaccess()
         }
     }
 
-    // function calls and array access
-    fn fncall(&mut self) -> Result<Expr, ParserError> {
+    // dot notation for field access
+    fn fieldaccess(&mut self) -> Result<Expr, ParserError> {
+        let target = self.suffix()?;
+        if !self.at_end() && self.peek().ty == TokenType::Dot {
+            let pos = self.next().pos;
+            self.err_on_eof()?;
+            let name = self.ident()?.ty.as_ident().unwrap();
+            Ok(Expr::FieldAccess { target: Box::new(target), name, pos })
+        } else {
+            Ok(target)
+        }
+    }
+
+    // function calls, array access, struct initializaiton
+    fn suffix(&mut self) -> Result<Expr, ParserError> {
         let mut expr = self.expr_base()?;
         while !self.at_end() {
             match self.peek().ty {
                 TokenType::LParen => expr = self.fncall_inner(expr)?,
                 TokenType::LBrack => expr = self.arrindex_inner(expr)?,
+                TokenType::LBrace => expr = self.structinit_inner(expr)?,
                 _ => return Ok(expr)
             }
         }
@@ -442,6 +456,13 @@ impl Parser {
             return Err(self.mk_error("Expected RBrack after collection index"))
         }
         Ok(Expr::Index { lhs: Box::new(expr), index: Box::new(index), pos: lbrack.pos })
+    }
+
+    // struct initialization: A { b }
+    fn structinit_inner(&mut self, expr: Expr) -> Result<Expr, ParserError> {
+        let lbrace = self.next();
+        let args = self.commalist(TokenType::RBrace, Self::assignment)?;
+        Ok(Expr::StructInit { ty: Box::new(expr), args, pos: lbrace.pos })
     }
 
     // key-value pairs for maps

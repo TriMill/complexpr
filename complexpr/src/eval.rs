@@ -2,7 +2,7 @@ use std::{collections::HashMap, rc::Rc, cell::RefCell};
 
 use num_traits::Pow;
 
-use crate::{value::{Value, Complex, func::{Func, CIterator}}, expr::{Stmt, Expr}, token::{TokenType, Token, OpType}, RuntimeError, Position, env::{EnvRef, Environment}};
+use crate::{value::{Value, Complex, func::{Func, CIterator}, TypeData, CxprStruct}, expr::{Stmt, Expr}, token::{TokenType, Token, OpType}, RuntimeError, Position, env::{EnvRef, Environment}};
 
 thread_local!(static PIPE_NAME: Option<Rc<str>> = Some(Rc::from("<pipeline>")));
 thread_local!(static FORLOOP_NAME: Option<Rc<str>> = Some(Rc::from("<for loop>")));
@@ -127,7 +127,7 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), Unwind> {
             let value = eval_expr(expr, env)?;
             return Err(Unwind::Return { pos: pos.clone(), value })
         },
-        Stmt::Struct { .. } => todo!(),
+        Stmt::StructDef { name, ty } => env.borrow_mut().declare(name.ty.clone().as_ident().unwrap(), Value::Type(ty.clone()))
     }
     Ok(())
 }
@@ -169,6 +169,19 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
                 step.as_ref().map(|x| x.as_ref()), 
                 *incl, env),
         Expr::BoxedInfix { func } => Ok(Value::Func(func.clone())),
+        Expr::FieldAccess { target, name, .. } => {
+            let target = eval_expr(target, env)?;
+            match target {
+                Value::Struct(s) => {
+                    if let Some(v) = s.data.clone().borrow().get(name.as_ref()) {
+                        Ok(v.clone())
+                    } else {
+                        Err(format!("Struct {} has no field '{}'", Value::Struct(s).repr(), name).into())
+                    }
+                },
+                _ => Err(format!("{} is not a struct", target.repr()).into())
+            }
+        },
         Expr::List { items } => {
             let mut list = Vec::with_capacity(items.len());
             for item in items {
@@ -210,6 +223,29 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
             };
             Ok(Value::Func(func))
         },
+        Expr::StructInit { ty, args, .. } => {
+            let ty_val = eval_expr(&ty, env.clone())?;
+            let ty = match ty_val {
+                Value::Type(ty) => ty,
+                _ => return Err(format!("'{}' is not a type", ty_val.repr()).into())
+            };
+            match ty.typedata {
+                TypeData::None => Err(format!("'{}' is not a struct type", Value::Type(ty).repr()).into()),
+                TypeData::StructFields(ref fields) => if fields.len() == args.len() {
+                    let mut data = HashMap::new();
+                    for (k, v) in fields.iter().zip(args.iter()) {
+                        data.insert(k.to_owned(), eval_expr(v, env.clone())?);
+                    }
+                    let result = CxprStruct {
+                        ty: ty.clone(),
+                        data: Rc::new(RefCell::new(data))
+                    };
+                    Ok(Value::Struct(result))
+                } else {
+                    Err(format!("Wrong number of fields for type '{}', expected {}, got {}", ty.name, fields.len(), args.len()).into())
+                }
+            }
+        }
     }
 }
 
@@ -251,44 +287,60 @@ fn compound_assignment_inner(l: Value, r: Value, op: &Token) -> Result<Value, Ru
 }
 
 pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
-    // lhs must be an identifier (checked in parser)
-    if let Expr::Ident{value: Token{ty: TokenType::Ident(name),..}} = lhs {
-        if op.ty == TokenType::Equal {
-            // plain assignment
-            let r = eval_expr(rhs, env.clone())?;
-            env.borrow_mut()
-                .set(name.clone(), r.clone())
-                .map_err(|_| RuntimeError::new("Variable not declared before assignment", op.pos.clone()))?;
-            Ok(r)
-        } else {
-            // compound assignment
-            let prev_value = env.borrow_mut()
-                .get(name)
-                .ok_or_else(|| RuntimeError::new("Variable not defined in scope", op.pos.clone()))?;
-            let r = eval_expr(rhs, env.clone())?;
+    match lhs {
+        Expr::Ident{value, ..} => {
+            let name = value.ty.clone().as_ident().unwrap();
+            if op.ty == TokenType::Equal {
+                // plain assignment
+                let r = eval_expr(rhs, env.clone())?;
+                env.borrow_mut()
+                    .set(name.clone(), r.clone())
+                    .map_err(|_| RuntimeError::new("Variable not declared before assignment", op.pos.clone()))?;
+                Ok(r)
+            } else {
+                // compound assignment
+                let prev_value = env.borrow_mut()
+                    .get(&name)
+                    .ok_or_else(|| RuntimeError::new("Variable not defined in scope", op.pos.clone()))?;
+                let r = eval_expr(rhs, env.clone())?;
 
-            let result = compound_assignment_inner(prev_value, r, op)?;
+                let result = compound_assignment_inner(prev_value, r, op)?;
 
-            env.borrow_mut()
-                .set(name.clone(), result.clone()).expect("unreachable");
-            Ok(result)
-        }
-    } else if let Expr::Index { lhs, index, pos } = lhs {
-        let l = eval_expr(lhs, env.clone())?;
-        let idx = eval_expr(index, env.clone())?;
-        if op.ty == TokenType::Equal {
+                env.borrow_mut()
+                    .set(name, result.clone()).expect("unreachable");
+                Ok(result)
+            }
+        },
+        Expr::Index { lhs, index, pos } => {
+            let l = eval_expr(lhs, env.clone())?;
+            let idx = eval_expr(index, env.clone())?;
+            if op.ty == TokenType::Equal {
+                let r = eval_expr(rhs, env)?;
+                l.assign_index(&idx, r.clone()).map_err(|e| RuntimeError::new(e, pos.clone()))?;
+                Ok(r)
+            } else {
+                let prev_value = l.index(&idx).map_err(|e| RuntimeError::new(e, pos.clone()))?;
+                let r = eval_expr(rhs, env)?;
+                let result = compound_assignment_inner(prev_value, r, op)?;
+                l.assign_index(&idx, result.clone()).map_err(|e| RuntimeError::new(e, pos.clone()))?;
+                Ok(result)
+            }
+        },
+        Expr::FieldAccess { target, name, pos } => {
+            let target = eval_expr(target, env.clone())?;
             let r = eval_expr(rhs, env)?;
-            l.assign_index(&idx, r.clone()).map_err(|e| RuntimeError::new(e, pos.clone()))?;
-            Ok(r)
-        } else {
-            let prev_value = l.index(&idx).map_err(|e| RuntimeError::new(e, pos.clone()))?;
-            let r = eval_expr(rhs, env)?;
-            let result = compound_assignment_inner(prev_value, r, op)?;
-            l.assign_index(&idx, result.clone()).map_err(|e| RuntimeError::new(e, pos.clone()))?;
-            Ok(result)
+            if let Value::Struct(s) = target { 
+                if s.data.borrow().contains_key(name.as_ref()) {
+                    s.data.borrow_mut().insert(name.to_string(), r.clone());
+                    Ok(r)
+                } else {
+                    Err(RuntimeError::new(format!("Struct {} does not have field {}", Value::Struct(s).repr(), name), pos.clone()))
+                }
+            } else {
+                Err(RuntimeError::new(format!("'{}' is not a struct", target.repr()), pos.clone()))
+            }
         }
-    } else {
-        unreachable!()
+        _ => unreachable!()
     }
 }
 
