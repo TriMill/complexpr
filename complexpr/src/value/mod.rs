@@ -1,6 +1,5 @@
 use std::{rc::Rc, collections::HashMap, ops::*, cmp::Ordering, cell::RefCell, hash::Hash, sync::atomic::{AtomicUsize, self}};
 
-use either::Either;
 use num_traits::{Zero, ToPrimitive, Pow};
 use strum::{EnumCount, EnumDiscriminants, EnumIter, IntoEnumIterator, AsRefStr};
 
