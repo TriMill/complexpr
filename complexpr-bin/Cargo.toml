@@ -7,10 +7,14 @@ edition = "2021"
 
 [dependencies]
 complexpr = { path = "../complexpr" }
-rustyline = "10.0.0"
 backtrace = "0.3.66"
-rustyline-derive = "0.7.0"
+rustyline = { version = "10.0.0", optional = true }
+rustyline-derive = { version = "0.7.0", optional = true }
 
 [[bin]]
 name = "complexpr"
 path = "src/main.rs"
+
+[features]
+default = ["repl"]
+repl = ["dep:rustyline", "dep:rustyline-derive"]
