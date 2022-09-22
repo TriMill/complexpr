@@ -449,7 +449,7 @@ impl Parser {
             match self.peek().ty {
                 TokenType::LParen => expr = self.fncall_inner(expr)?,
                 TokenType::LBrack => expr = self.arrindex_inner(expr)?,
-                TokenType::LBrace => expr = self.structinit_inner(expr)?,
+                TokenType::Colon => expr = self.structinit_inner(expr)?,
                 _ => return Ok(expr)
             }
         }
@@ -474,11 +474,14 @@ impl Parser {
         Ok(Expr::Index { lhs: Box::new(expr), index: Box::new(index), pos: lbrack.pos })
     }
 
-    // struct initialization: A { b }
+    // struct initialization: A: { b }
     fn structinit_inner(&mut self, expr: Expr) -> Result<Expr, ParserError> {
-        let lbrace = self.next();
+        let colon = self.next();
+        if !self.expect(TokenType::LBrace).0 {
+            return Err(self.mk_error("Expected left brace in struct initialization"))
+        }
         let args = self.commalist(TokenType::RBrace, Self::assignment)?;
-        Ok(Expr::StructInit { ty: Box::new(expr), args, pos: lbrace.pos })
+        Ok(Expr::StructInit { ty: Box::new(expr), args, pos: colon.pos })
     }
 
     // key-value pairs for maps
