@@ -76,7 +76,6 @@ dependencies = [
  "num-traits",
  "paste",
  "strum",
- "strum_macros",
 ]
 
 [[package]]
