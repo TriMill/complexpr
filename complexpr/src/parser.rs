@@ -155,16 +155,18 @@ impl Parser {
     }
 
     fn terminate_stmt(&mut self, stmt: Stmt, req_semicolon: bool) -> Result<Stmt, ParserError> {
-        if !req_semicolon {
-            return Ok(stmt)
-        }
         if self.at_end() {
-            self.err_on_eof()?;
+            if req_semicolon {
+                self.err_on_eof()?;
+            } else{
+                return Ok(stmt)
+            }
         }
 
-        match self.expect(TokenType::Semicolon) {
-            (true, _) => Ok(stmt),
-            (false, _) => Err(self.mk_error("Missing semicolon after statement"))
+        match self.expect(TokenType::Semicolon).0 {
+            true => Ok(stmt),
+            false if !req_semicolon => Ok(stmt),
+            false => Err(self.mk_error("Missing semicolon after statement"))
         }
 
     }
@@ -249,8 +251,23 @@ impl Parser {
         }
         let args = self.commalist(TokenType::RParen, Self::ident)?;
         self.err_on_eof()?;
-        let body = self.statement(false)?;
-        Ok(Stmt::Fn { name, args, body: Box::new(body) })
+        if self.peek().ty == TokenType::LParen {
+            self.next();
+            self.err_on_eof()?;
+            let body = self.assignment()?;
+            self.err_on_eof()?;
+            if !self.expect(TokenType::RParen).0 {
+                return Err(self.mk_error("Expected right parenthesis to close function body"))
+            }
+            Ok(Stmt::Fn { name, args, body: Box::new(Stmt::Expr {expr: body }) })
+        } else if self.peek().ty == TokenType::LBrace {
+            self.next();
+            self.err_on_eof()?;
+            let body = self.block()?;
+            Ok(Stmt::Fn { name, args, body: Box::new(body) })
+        } else {
+            Err(self.mk_error("Expected '(' or '{' after function arguments list to begin body"))
+        }
     }
 
     fn block(&mut self) -> Result<Stmt, ParserError> {
@@ -415,15 +432,14 @@ impl Parser {
 
     // dot notation for field access
     fn fieldaccess(&mut self) -> Result<Expr, ParserError> {
-        let target = self.suffix()?;
-        if !self.at_end() && self.peek().ty == TokenType::Dot {
+        let mut target = self.suffix()?;
+        while !self.at_end() && self.peek().ty == TokenType::Dot {
             let pos = self.next().pos;
             self.err_on_eof()?;
             let name = self.ident()?.ty.as_ident().unwrap();
-            Ok(Expr::FieldAccess { target: Box::new(target), name, pos })
-        } else {
-            Ok(target)
-        }
+            target = Expr::FieldAccess { target: Box::new(target), name, pos }
+        } 
+        Ok(target)
     }
 
     // function calls, array access, struct initializaiton
@@ -531,8 +547,23 @@ impl Parser {
             }
             let args = self.commalist(TokenType::RParen, Self::ident)?;
             self.err_on_eof()?;
-            let body = self.statement(false)?;
-            Ok(Expr::Fn { args, body: Box::new(body) })
+            if self.peek().ty == TokenType::LParen {
+                self.next();
+                self.err_on_eof()?;
+                let body = self.assignment()?;
+                self.err_on_eof()?;
+                if !self.expect(TokenType::RParen).0 {
+                    return Err(self.mk_error("Expected right parenthesis to close function body"))
+                }
+                Ok(Expr::Fn { args, body: Box::new(Stmt::Expr {expr: body }) })
+            } else if self.peek().ty == TokenType::LBrace {
+                self.next();
+                self.err_on_eof()?;
+                let body = self.block()?;
+                Ok(Expr::Fn { args, body: Box::new(body) })
+            } else {
+                Err(self.mk_error("Expected '(' or '{' after function arguments list to begin body"))
+            }
         } else {
             Err(self.mk_error(format!("Unexpected token: {:?}", next.ty)))
         }

@@ -273,15 +273,15 @@ pub fn eval_ident(token: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
     }
 }
 
-fn compound_assignment_inner(l: Value, r: Value, op: &Token) -> Result<Value, RuntimeError> {
+fn compound_assignment_inner(l: &Value, r: &Value, op: &Token) -> Result<Value, RuntimeError> {
     match op.ty {
-        TokenType::PlusEqual => &l + &r,
-        TokenType::MinusEqual => &l - &r,
-        TokenType::StarEqual => &l * &r,
-        TokenType::SlashEqual => &l / &r,
-        TokenType::PercentEqual => &l % &r,
-        TokenType::CaretEqual => l.pow(&r),
-        TokenType::DoubleSlashEqual => l.fracdiv(&r),
+        TokenType::PlusEqual => l + r,
+        TokenType::MinusEqual => l - r,
+        TokenType::StarEqual => l * r,
+        TokenType::SlashEqual => l / r,
+        TokenType::PercentEqual => l % r,
+        TokenType::CaretEqual => l.pow(r),
+        TokenType::DoubleSlashEqual => l.fracdiv(r),
         _ => todo!() // TODO more operations
     }.map_err(|e| RuntimeError::new(e, op.pos.clone()))
 }
@@ -304,11 +304,10 @@ pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Resul
                     .ok_or_else(|| RuntimeError::new("Variable not defined in scope", op.pos.clone()))?;
                 let r = eval_expr(rhs, env.clone())?;
 
-                let result = compound_assignment_inner(prev_value, r, op)?;
+                let result = compound_assignment_inner(&prev_value, &r, op)?;
 
-                env.borrow_mut()
-                    .set(name, result.clone()).expect("unreachable");
-                Ok(result)
+                env.borrow_mut().set(name, result.clone()).expect("unreachable");
+                Ok(Value::Nil)
             }
         },
         Expr::Index { lhs, index, pos } => {
@@ -321,18 +320,28 @@ pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Resul
             } else {
                 let prev_value = l.index(&idx).map_err(|e| RuntimeError::new(e, pos.clone()))?;
                 let r = eval_expr(rhs, env)?;
-                let result = compound_assignment_inner(prev_value, r, op)?;
+                let result = compound_assignment_inner(&prev_value, &r, op)?;
                 l.assign_index(&idx, result.clone()).map_err(|e| RuntimeError::new(e, pos.clone()))?;
-                Ok(result)
+                Ok(Value::Nil)
             }
         },
         Expr::FieldAccess { target, name, pos } => {
             let target = eval_expr(target, env.clone())?;
-            let r = eval_expr(rhs, env)?;
             if let Value::Struct(s) = target { 
                 if s.data.borrow().contains_key(name.as_ref()) {
-                    s.data.borrow_mut().insert(name.to_string(), r.clone());
-                    Ok(r)
+                    if op.ty == TokenType::Equal {
+                        let r = eval_expr(rhs, env)?;
+                        s.data.borrow_mut().insert(name.to_string(), r.clone());
+                        Ok(r)
+                    } else {
+                        let result = {
+                            let prev_value = &s.data.borrow()[name.as_ref()];
+                            let r = eval_expr(rhs, env)?;
+                            compound_assignment_inner(prev_value, &r, op)?
+                        };
+                        s.data.borrow_mut().insert(name.to_string(), result);
+                        Ok(Value::Nil)
+                    }
                 } else {
                     Err(RuntimeError::new(format!("Struct {} does not have field {}", Value::Struct(s).repr(), name), pos.clone()))
                 }
