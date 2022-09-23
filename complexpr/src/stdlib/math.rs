@@ -56,9 +56,9 @@ fn try_into_floaty(v: &Value, name: &'static str) -> Result<Floaty, String> {
     match v {
         Value::Int(n) => Ok((*n as f64).into()),
         Value::Float(f) => Ok((*f).into()),
-        Value::Rational(r) => Ok((r.to_f64().ok_or_else(|| "Could not convert rational to float")?).into()),
+        Value::Rational(r) => Ok((r.to_f64().ok_or("Could not convert rational to float")?).into()),
         Value::Complex(z) => Ok((*z).into()),
-        _ => Err(format!("Argument to {} must be numeric", name).into())
+        _ => Err(format!("Argument to {} must be numeric", name))
     }
 }
 

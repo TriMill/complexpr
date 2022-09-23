@@ -1,4 +1,4 @@
-use std::{rc::Rc, collections::HashMap, ops::*, cmp::Ordering, cell::RefCell, hash::Hash, sync::atomic::{AtomicUsize, self}};
+use std::{rc::Rc, collections::HashMap, ops::*, cmp::Ordering, cell::RefCell, hash::Hash, sync::atomic::{AtomicUsize, self}, fmt::{self, Write}, any::Any};
 
 use num_traits::{Zero, ToPrimitive, Pow};
 use strum::{EnumCount, EnumDiscriminants, EnumIter, IntoEnumIterator, AsRefStr};
@@ -9,6 +9,12 @@ pub mod func;
 
 pub type Rational = num_rational::Ratio<i64>;
 pub type Complex = num_complex::Complex64;
+
+pub trait Native: Any + std::fmt::Debug + std::fmt::Display {
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+    fn get_type(&self) -> Type;
+}
 
 static TYPE_COUNTER: AtomicUsize = AtomicUsize::new(Value::COUNT);
 
@@ -33,6 +39,10 @@ impl PartialEq for Type {
 
 impl Eq for Type {}
 
+pub fn generate_type_id() -> usize {
+    TYPE_COUNTER.fetch_add(1, atomic::Ordering::Relaxed)
+}
+
 pub fn generate_struct_type(name: Rc<str>, fields: Vec<String>) -> Type {
     Type { 
         name, 
@@ -55,21 +65,25 @@ pub fn generate_builtin_types() -> Vec<Type> {
 
 fn fmt_list(list: &Vec<Value>) -> String {
     let mut result: String = "[".into();
-    for v in list {
-        result += &(v.repr() + ", ");
+    if list.len() > 0 {
+        for v in list {
+            result += &(v.repr() + ", ");
+        }
+        result.pop();
+        result.pop();
     }
-    result.pop();
-    result.pop();
     result + "]"
 }
 
 fn fmt_map(map: &HashMap<Value, Value>) -> String {
     let mut result: String = "{".into();
-    for (k, v) in map {
-        result += &(k.repr() + ": " + &v.repr() + ", ");
+    if map.len() > 0 {
+        for (k, v) in map {
+            result += &(k.repr() + ": " + &v.repr() + ", ");
+        }
+        result.pop();
+        result.pop();
     }
-    result.pop();
-    result.pop();
     result + "}"
 }
 
@@ -140,6 +154,7 @@ pub enum Value {
     Map(Rc<RefCell<HashMap<Value,Value>>>),
     Func(Func),
     Struct(CxprStruct),
+    Native(Rc<RefCell<dyn Native>>),
 }
 
 impl Value {
@@ -150,9 +165,9 @@ impl Value {
             Float(f) => *f != 0.0,
             Complex(z) => !z.is_zero(),
             Rational(r) => !r.is_zero(),
-            String(s) => !s.len() == 0,
-            List(l) => !l.borrow().len() == 0,
-            Map(m) => !m.borrow().len() == 0,
+            String(s) => s.len() != 0,
+            List(l) => l.borrow().len() != 0,
+            Map(m) => m.borrow().len() != 0,
             Char(c) => *c != '\0',
             _ => true
         }
@@ -180,35 +195,6 @@ impl Value {
         }
     }
 
-    pub fn to_string(&self) -> String {
-        match self {
-            Self::Nil => "nil".into(),
-            Self::Bool(b) => b.to_string(),
-            Self::Int(n) => n.to_string(),
-            Self::Float(f) => f.to_string(),
-            Self::Rational(r) => r.to_string(),
-            Self::Complex(z) => z.to_string(),
-            Self::Char(c) => c.to_string(),
-            Self::String(s) => s.as_ref().to_owned(),
-            Self::List(l) => fmt_list(&l.borrow()),
-            Self::Map(m) => fmt_map(&m.borrow()),
-            Self::Type(t) => format!("<type {}>", t.name),
-            Self::Func(Func::Builtin { name, func, .. }) => format!("<builtin fn {} at {:?}>", name, *func as *const ()),
-            Self::Func(Func::BuiltinClosure { .. }) => format!("<builtin anonymous fn>"),
-            Self::Func(f @ Func::Partial { .. }) => match f.name() {
-                Some(name) => format!("<partial of fn {}>", name),
-                None => "<partial of anonymous fn>".into(),
-            }
-            Self::Func(Func::Func { name, .. }) => match name {
-                Some(name) => format!("<fn {}>", name),
-                None => "<anonymous fn>".into(),
-            },
-            Self::Struct(CxprStruct { ty, data }) 
-                => format!("{} {{ {} }}", ty.name, 
-                    data.borrow().iter().map(|(k, v)| format!("{}: {}", k, v.repr()))
-                        .collect::<Vec<String>>().join(", "))
-        }
-    }
     
     pub fn repr(&self) -> String {
         match self {
@@ -290,14 +276,49 @@ impl Value {
     
     pub fn get_type(&self) -> Type {
         let discr = ValueDiscriminants::from(self);
-        if let Self::Struct(_) = self {
-            todo!()
+        if let Self::Struct(s) = self {
+            s.ty.clone()
+        } else if let Self::Native(n) = self {
+            n.borrow().get_type()
         } else {
             Type {
                 name: Rc::from(discr.as_ref()),
                 id: discr as usize,
                 typedata: TypeData::None,
             }
+        }
+    }
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Nil => f.write_str("nil"),
+            Self::Bool(b) => f.write_str(&b.to_string()),
+            Self::Int(n) => f.write_str(&n.to_string()),
+            Self::Float(x) => f.write_str(&x.to_string()),
+            Self::Rational(r) => f.write_str(&r.to_string()),
+            Self::Complex(z) => f.write_str(&z.to_string()),
+            Self::Char(c) => f.write_char(*c),
+            Self::String(s) => f.write_str(s.as_ref()),
+            Self::List(l) => f.write_str(&fmt_list(&l.borrow())),
+            Self::Map(m) => f.write_str(&fmt_map(&m.borrow())),
+            Self::Type(t) => write!(f, "<type {}>", t.name),
+            Self::Func(Func::Builtin { name, func, .. }) => write!(f, "<builtin fn {} at {:?}>", name, *func as *const ()),
+            Self::Func(Func::BuiltinClosure { .. }) => f.write_str("<builtin anonymous fn>"),
+            Self::Func(func @ Func::Partial { .. }) => match func.name() {
+                Some(name) => write!(f, "<partial of fn {}>", name),
+                None => f.write_str("<partial of anonymous fn>"),
+            }
+            Self::Func(Func::Func { name, .. }) => match name {
+                Some(name) => write!(f, "<fn {}>", name),
+                None => f.write_str("<anonymous fn>"),
+            },
+            Self::Struct(CxprStruct { ty, data }) 
+                => write!(f, "{} {{ {} }}", ty.name, 
+                    data.borrow().iter().map(|(k, v)| format!("{}: {}", k, v.repr()))
+                        .collect::<Vec<String>>().join(", ")),
+            Self::Native(x) => f.write_str(&x.borrow().to_string()),
         }
     }
 }
@@ -415,6 +436,7 @@ impl Hash for Value {
             Self::Map(_) => todo!(),
             Self::Func(f) => f.hash(state),
             Self::Struct(_) => todo!(),
+            Self::Native(_) => todo!(),
 
         }
     }

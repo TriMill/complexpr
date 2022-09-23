@@ -2,9 +2,9 @@ pub mod io;
 pub mod iter;
 pub mod math;
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{time::{SystemTime, UNIX_EPOCH}, rc::Rc, cell::RefCell};
 
-use crate::{value::Value, RuntimeError, env::Environment};
+use crate::{value::{Value, func::Func}, RuntimeError, env::Environment};
 
 #[macro_export]
 macro_rules! declare_fn {
@@ -28,6 +28,7 @@ pub fn load(env: &mut Environment) {
     declare_fn!(env, chr, 1); 
     declare_fn!(env, has, 2); 
     declare_fn!(env, len, 1); 
+    declare_fn!(env, args, 0); 
     declare_fn!(env, time, 0); 
     declare_fn!(env, list, 1);
     declare_fn!(env, push, 2);
@@ -99,6 +100,21 @@ fn fn_has(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 }
 
+fn fn_args(_: Vec<Value>) -> Result<Value, RuntimeError> {
+    let mut args = std::env::args();
+    args.next();
+    let args = RefCell::new(args);
+    Ok(Value::Func(Func::BuiltinClosure {
+        arg_count: 0,
+        func: Rc::new(move |_| {
+            match args.borrow_mut().next() {
+                Some(s) => Ok(Value::from(s)),
+                None => Ok(Value::Nil)
+            }
+        })
+    }))
+}
+
 fn fn_time(_: Vec<Value>) -> Result<Value, RuntimeError> {
     let time = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?;
     Ok(Value::from(time.as_secs_f64()))
@@ -122,7 +138,7 @@ fn fn_push(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 fn fn_pop(args: Vec<Value>) -> Result<Value, RuntimeError> {
     if let Value::List(l) = &args[0] {
-        l.as_ref().borrow_mut().pop().ok_or("Pop on empty list".into())
+        l.as_ref().borrow_mut().pop().ok_or_else(|| "Pop on empty list".into())
     } else{
         Err("First argument to pop must be a list".into())
     }

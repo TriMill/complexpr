@@ -224,7 +224,7 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
             Ok(Value::Func(func))
         },
         Expr::StructInit { ty, args, .. } => {
-            let ty_val = eval_expr(&ty, env.clone())?;
+            let ty_val = eval_expr(ty, env.clone())?;
             let ty = match ty_val {
                 Value::Type(ty) => ty,
                 _ => return Err(format!("'{}' is not a type", ty_val.repr()).into())
@@ -294,7 +294,7 @@ pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Resul
                 // plain assignment
                 let r = eval_expr(rhs, env.clone())?;
                 env.borrow_mut()
-                    .set(name.clone(), r.clone())
+                    .set(name, r.clone())
                     .map_err(|_| RuntimeError::new("Variable not declared before assignment", op.pos.clone()))?;
                 Ok(r)
             } else {
@@ -306,7 +306,7 @@ pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Resul
 
                 let result = compound_assignment_inner(&prev_value, &r, op)?;
 
-                env.borrow_mut().set(name, result.clone()).expect("unreachable");
+                env.borrow_mut().set(name, result).expect("unreachable");
                 Ok(Value::Nil)
             }
         },
@@ -321,7 +321,7 @@ pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Resul
                 let prev_value = l.index(&idx).map_err(|e| RuntimeError::new(e, pos.clone()))?;
                 let r = eval_expr(rhs, env)?;
                 let result = compound_assignment_inner(&prev_value, &r, op)?;
-                l.assign_index(&idx, result.clone()).map_err(|e| RuntimeError::new(e, pos.clone()))?;
+                l.assign_index(&idx, result).map_err(|e| RuntimeError::new(e, pos.clone()))?;
                 Ok(Value::Nil)
             }
         },
@@ -403,7 +403,7 @@ pub fn eval_boolean(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Result<V
 
 fn mk_pipecolon_inner(f: Func, it: CIterator) -> Func {
     let it = RefCell::new(it);
-    return Func::BuiltinClosure{
+    Func::BuiltinClosure{
         arg_count: 0,
         func: Rc::new(move |_| {
             if let Some(next) = it.borrow_mut().next() {
@@ -417,7 +417,7 @@ fn mk_pipecolon_inner(f: Func, it: CIterator) -> Func {
 
 fn mk_pipequestion_inner(f: Func, it: CIterator) -> Func {
     let it = RefCell::new(it);
-    return Func::BuiltinClosure {
+    Func::BuiltinClosure {
         arg_count: 0,
         func: Rc::new(move |_| {
             loop {

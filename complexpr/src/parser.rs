@@ -410,8 +410,8 @@ impl Parser {
             };
             Ok(Expr::Range { 
                 start: Box::new(start), 
-                end: end.map(|x| Box::new(x)), 
-                step: step.map(|x| Box::new(x)), 
+                end: end.map(Box::new),
+                step: step.map(Box::new),
                 incl 
             })
         } else {
