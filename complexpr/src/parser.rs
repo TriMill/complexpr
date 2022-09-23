@@ -449,7 +449,7 @@ impl Parser {
             match self.peek().ty {
                 TokenType::LParen => expr = self.fncall_inner(expr)?,
                 TokenType::LBrack => expr = self.arrindex_inner(expr)?,
-                TokenType::Colon => expr = self.structinit_inner(expr)?,
+                TokenType::Tilde => expr = self.structinit_inner(expr)?,
                 _ => return Ok(expr)
             }
         }
@@ -478,7 +478,7 @@ impl Parser {
     fn structinit_inner(&mut self, expr: Expr) -> Result<Expr, ParserError> {
         let colon = self.next();
         if !self.expect(TokenType::LBrace).0 {
-            return Err(self.mk_error("Expected left brace in struct initialization"))
+            return Err(self.mk_error("Expected tilde in struct initialization"))
         }
         let args = self.commalist(TokenType::RBrace, Self::assignment)?;
         Ok(Expr::StructInit { ty: Box::new(expr), args, pos: colon.pos })

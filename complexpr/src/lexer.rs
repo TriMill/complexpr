@@ -219,6 +219,7 @@ impl Lexer {
                     },
                     _ => self.add_token(TokenType::Pipe, "|"),
                 },
+                '~' => self.add_token(TokenType::Tilde, "~"),
                 ',' => self.add_token(TokenType::Comma, ","),
                 ';' => self.add_token(TokenType::Semicolon, ";"),
                 ':' => self.add_token(TokenType::Colon, ":"),
