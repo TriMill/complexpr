@@ -2,7 +2,9 @@ use std::cmp::Ordering;
 
 use num_traits::{ToPrimitive, Pow, Signed};
 
-use crate::{value::{Value, Complex, Rational}, RuntimeError, env::Environment, declare_fn};
+use complexpr::{value::{Value, Complex, Rational}, RuntimeError, env::Environment};
+
+use crate::declare_fn;
 
 enum Floaty {
     Real(f64), Complex(Complex)

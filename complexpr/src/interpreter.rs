@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{value::Value, lexer::Lexer, parser::Parser, eval::{eval_stmt, eval_expr}, expr::Stmt, stdlib, env::{EnvRef, Environment}};
+use crate::{value::Value, lexer::Lexer, parser::Parser, eval::{eval_stmt, eval_expr}, expr::Stmt, env::{EnvRef, Environment}};
 
 pub fn interpret(src: &str, fname: Option<String>, env: Option<EnvRef>, repl: bool) -> Result<Value, Box<dyn std::error::Error>> {
     let ctx_name = if repl { "<interactive input>" } else { fname.as_ref().map(|s| s.as_ref()).unwrap_or("<unknown>") };
@@ -13,10 +13,6 @@ pub fn interpret(src: &str, fname: Option<String>, env: Option<EnvRef>, repl: bo
         environ = env;
     } else {
         environ = Rc::new(RefCell::new(Environment::new()));
-        stdlib::load(&mut environ.borrow_mut());
-        stdlib::io::load(&mut environ.borrow_mut());
-        stdlib::iter::load(&mut environ.borrow_mut());
-        stdlib::math::load(&mut environ.borrow_mut());
     }
 
     let mut result = Value::Nil;

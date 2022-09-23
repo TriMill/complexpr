@@ -74,7 +74,6 @@ dependencies = [
  "num-complex",
  "num-rational",
  "num-traits",
- "paste",
  "strum",
 ]
 
@@ -84,8 +83,19 @@ version = "0.1.0"
 dependencies = [
  "backtrace",
  "complexpr",
+ "complexpr-stdlib",
  "rustyline",
  "rustyline-derive",
+]
+
+[[package]]
+name = "complexpr-stdlib"
+version = "0.1.0"
+dependencies = [
+ "complexpr",
+ "lazy_static",
+ "num-traits",
+ "paste",
 ]
 
 [[package]]
@@ -185,6 +195,12 @@ name = "io-lifetimes"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ea37f355c05dde75b84bba2d767906ad522e97cd9e2eef2be7a4ab7fb442c06"
+
+[[package]]
+name = "lazy_static"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"

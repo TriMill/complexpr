@@ -1,6 +1,8 @@
 use std::{io::{Write, Read}, fs::{OpenOptions, File}, rc::Rc, cell::RefCell, fmt};
 
-use crate::{env::Environment, declare_fn, value::{Value, Native, TypeData}, RuntimeError};
+use complexpr::{env::Environment, value::{Value, Native, TypeData}, RuntimeError};
+
+use crate::declare_fn;
 
 pub fn load(env: &mut Environment) {
     declare_fn!(env, print, 1);
@@ -37,7 +39,7 @@ struct FileBox {
 }
 
 lazy_static::lazy_static! {
-    static ref FILE_TYPE_ID: usize = crate::value::generate_type_id();
+    static ref FILE_TYPE_ID: usize = complexpr::value::generate_type_id();
 }
 thread_local!(static FILE_TYPE_NAME: Rc<str> = Rc::from("File"));
 
@@ -50,8 +52,8 @@ impl Native for FileBox {
         self
     }
 
-    fn get_type(&self) -> crate::value::Type {
-        crate::value::Type { name: FILE_TYPE_NAME.with(Rc::clone), id: *FILE_TYPE_ID, typedata: TypeData::None }
+    fn get_type(&self) -> complexpr::value::Type {
+        complexpr::value::Type { name: FILE_TYPE_NAME.with(Rc::clone), id: *FILE_TYPE_ID, typedata: TypeData::None }
         
     }
 }

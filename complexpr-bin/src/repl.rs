@@ -1,9 +1,10 @@
 #![cfg(feature = "repl")]
 
 use rustyline::{self, error::ReadlineError, Config, CompletionType, EditMode, hint::HistoryHinter, validate::MatchingBracketValidator, Editor};
-use complexpr::{env::Environment, interpreter::interpret, value::Value, stdlib};
+use complexpr::{interpreter::interpret, value::Value};
 
-use crate::helper::CxprHelper;
+
+use crate::{helper::CxprHelper, create_env};
 
 const C_RESET: &str = "\x1b[0m";
 const C_BLUE: &str = "\x1b[94m";
@@ -17,7 +18,7 @@ pub fn repl() -> Result<(), Box<dyn std::error::Error>> {
         .edit_mode(EditMode::Emacs)
         .build();
 
-    let env = Environment::new().wrap();
+    let env = create_env().wrap();
 
     let h = CxprHelper {
         hinter: HistoryHinter {},
@@ -35,11 +36,6 @@ pub fn repl() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("Press {}Ctrl+D{} to exit.", C_BLUE, C_RESET);
-
-    stdlib::load(&mut env.borrow_mut());
-    stdlib::io::load(&mut env.borrow_mut());
-    stdlib::iter::load(&mut env.borrow_mut());
-    stdlib::math::load(&mut env.borrow_mut());
 
     loop {
         let readline = rl.readline(">> ");

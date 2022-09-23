@@ -1,7 +1,7 @@
 use std::{fs, panic::{self, PanicInfo}, process::ExitCode};
 
 use backtrace::Backtrace;
-use complexpr::{interpreter::interpret};
+use complexpr::{interpreter::interpret, env::Environment};
 
 mod helper;
 mod repl;
@@ -22,10 +22,21 @@ fn panic_hook(info: &PanicInfo) {
     }
 }
 
+fn create_env() -> Environment {
+    let mut env = Environment::new();
+
+    complexpr_stdlib::prelude::load(&mut env);
+    complexpr_stdlib::io::load(&mut env);
+    complexpr_stdlib::iter::load(&mut env);
+    complexpr_stdlib::math::load(&mut env);
+
+    env
+}
+
 fn main() -> ExitCode {
     panic::set_hook(Box::new(panic_hook));
     let args: Vec<String> = std::env::args().collect();
-    if args.len() == 2 {
+    if args.len() >= 2 {
         let fname = &args[1];
         let src = match fs::read_to_string(fname) {
             Ok(src) => src,
@@ -34,7 +45,10 @@ fn main() -> ExitCode {
                 return ExitCode::from(2);
             }
         };
-        let res = interpret(&src, Some(fname.into()), None, false);
+
+        let env = create_env().wrap();
+
+        let res = interpret(&src, Some(fname.into()), Some(env), false);
         if let Err(e) = res {
             eprintln!("Error: {}", e);
             return ExitCode::from(1);

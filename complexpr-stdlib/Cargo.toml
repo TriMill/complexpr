@@ -1,0 +1,12 @@
+[package]
+name = "complexpr-stdlib"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+complexpr = { path = "../complexpr"}
+num-traits = "0.2.15"
+paste = "1.0.9"
+lazy_static = "1.4.0"

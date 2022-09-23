@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 complexpr = { path = "../complexpr" }
+complexpr-stdlib = { path = "../complexpr-stdlib" }
 backtrace = "0.3.66"
 rustyline = { version = "10.0.0", optional = true }
 rustyline-derive = { version = "0.7.0", optional = true }

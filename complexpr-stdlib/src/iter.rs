@@ -1,6 +1,8 @@
 use std::{rc::Rc, cell::RefCell};
 
-use crate::{value::{Value, func::Func}, RuntimeError, env::Environment, declare_fn};
+use complexpr::{value::{Value, func::Func}, RuntimeError, env::Environment};
+
+use crate::declare_fn;
 
 pub fn load(env: &mut Environment) {
     declare_fn!(env, take, 2);

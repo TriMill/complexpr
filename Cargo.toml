@@ -1,2 +1,2 @@
 [workspace]
-members = [ "complexpr-bin", "complexpr" ]
+members = [ "complexpr-bin", "complexpr", "complexpr-stdlib" ]
