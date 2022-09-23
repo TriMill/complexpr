@@ -23,6 +23,7 @@ To install complexpr, simply clone this repository, `cd complexpr-bin`, and `car
 | `Rational` | Rational number, represented as a pair of 64-bit integers | `3//5`, `-11//25`      |
 | `Bool`     | Boolean type, either `true` or `false`                    | `true`, `false`        |
 | `Char`     | A single Unicode character                                | `'A'`, `'\n'`          |
+| `String`   | A string of Unicode characters                            | `"example string\n"`   |
 | `List`     | A heterogeneous list                                      | `[1, 2.0, "3"]`        |
 | `Map`      | A heterogeneous hashmap                                   | `{1: "one", "2": 2}`   |
 | `Func`     | A function                                                | `max`, `fn(x,y) (x^y)` |
