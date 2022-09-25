@@ -1,12 +1,17 @@
 use std::{time::{SystemTime, UNIX_EPOCH}, rc::Rc, cell::RefCell};
 
-use complexpr::{value::{Value, func::Func}, RuntimeError, env::Environment};
+use complexpr::{value::{Value, func::Func, self}, RuntimeError, env::Environment};
+use try_partialord::TrySort;
 
 use crate::declare_fn;
 
 pub fn load(env: &mut Environment) {
+    for ty in value::generate_builtin_types() {
+        env.declare(ty.name.clone(), Value::Type(ty));
+    }
     declare_fn!(env, "type", fn_type, 1);
-    declare_fn!(env, type_eq, 1);
+    declare_fn!(env, type_id, 1);
+    declare_fn!(env, type_eq, 2);
     declare_fn!(env, copy, 1);
     declare_fn!(env, str, 1);
     declare_fn!(env, repr, 1);
@@ -16,17 +21,30 @@ pub fn load(env: &mut Environment) {
     declare_fn!(env, len, 1); 
     declare_fn!(env, args, 0); 
     declare_fn!(env, time, 0); 
+    declare_fn!(env, assert, 1); 
     declare_fn!(env, list, 1);
     declare_fn!(env, push, 2);
     declare_fn!(env, pop, 1);
     declare_fn!(env, append, 2);
     declare_fn!(env, insert, 3);
     declare_fn!(env, remove, 2);
+    declare_fn!(env, rev, 1);
+    declare_fn!(env, sort, 1);
+    declare_fn!(env, sort_by, 2);
+    declare_fn!(env, sort_by_key, 2);
     
 }
 
 fn fn_type(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Type(args[0].get_type()))
+}
+
+fn fn_type_id(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if let Value::Type(ty) = &args[0] {
+        Ok(Value::Int(ty.id as i64))
+    } else {
+        Err("Argument to id must be a type".into())
+    }
 }
 
 fn fn_type_eq(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -106,6 +124,14 @@ fn fn_time(_: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::from(time.as_secs_f64()))
 }
 
+fn fn_assert(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args[0].truthy() {
+        Ok(Value::Nil)
+    } else {
+        Err("Assertion failed".into())
+    }
+}
+
 fn fn_list(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let a = args[0].iter()?;
     let mut res = Vec::new();
@@ -177,5 +203,66 @@ fn fn_remove(args: Vec<Value>) -> Result<Value, RuntimeError> {
         },
         (Value::List(_), _) => Err("Second argument to remove must be an integer when the first is a list".into()),
         _ => Err("First argument to remove must be a list or map".into()),
+    }
+}
+
+fn fn_rev(mut args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::List(l) => {
+            l.borrow_mut().reverse();
+            Ok(args.swap_remove(0))
+        },
+        Value::String(s) => {
+            let s: String = s.chars().rev().collect();
+            Ok(Value::from(s))
+        },
+        _ => Err(format!("Expected list or string, got {}", args[0]).into())
+    }
+}
+
+fn fn_sort(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::List(l) => match l.borrow_mut().try_sort() {
+            Ok(_) => Ok(args[0].clone()),
+            Err(_) => Err("List contained incomparable items".into())
+        },
+        _ => Err(format!("Expected list, got {}", args[0]).into())
+    }
+}
+
+fn fn_sort_by(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    let func = match &args[1] {
+        Value::Func(f) => f,
+        x => return Err(format!("Expected function as second argument, got {}", x).into())
+    };
+    let ord = move |a: &Value, b: &Value| {
+        match func.call(vec![a.clone(), b.clone()]) {
+            Ok(Value::Int(n)) => Some(n < 0),
+            _ => None
+        }
+    };
+    match &args[0] {
+        Value::List(l) => match l.borrow_mut().try_sort_by(ord) {
+            Ok(_) => Ok(args[0].clone()),
+            Err(_) => Err("Error occured in sort comparison function".into())
+        },
+        _ => Err(format!("Expected list as first argument, got {}", args[0]).into())
+    }
+}
+
+fn fn_sort_by_key(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    let func = match &args[1] {
+        Value::Func(f) => f,
+        x => return Err(format!("Expected function as second argument, got {}", x).into())
+    };
+    let ord = move |a: &Value| {
+        func.call(vec![a.clone()]).ok()
+    };
+    match &args[0] {
+        Value::List(l) => match l.borrow_mut().try_sort_by_key(ord) {
+            Ok(_) => Ok(args[0].clone()),
+            Err(_) => Err("Error occured in sort key function".into())
+        },
+        _ => Err(format!("Expected list as first argument, got {}", args[0]).into())
     }
 }

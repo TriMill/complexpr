@@ -1,6 +1,6 @@
-use std::cmp::Ordering;
+use std::{cmp::Ordering, rc::Rc};
 
-use num_traits::{ToPrimitive, Pow, Signed};
+use num_traits::{ToPrimitive, Pow, Signed, Zero};
 
 use complexpr::{value::{Value, Complex, Rational}, RuntimeError, env::Environment};
 
@@ -23,15 +23,34 @@ impl From<Complex> for Floaty {
 }
 
 pub fn load(env: &mut Environment) {
-    declare_fn!(env, re, 1);
-    declare_fn!(env, im, 1);
+    env.declare(Rc::from("inf"), Value::from(f64::INFINITY));
+    env.declare(Rc::from("nan"), Value::from(f64::NAN));
+    env.declare(Rc::from("tau"), Value::from(std::f64::consts::TAU));
+    env.declare(Rc::from("pi"), Value::from(std::f64::consts::PI));
+    env.declare(Rc::from("e"), Value::from(std::f64::consts::E));
+
     declare_fn!(env, min, 2);
     declare_fn!(env, max, 2);
     declare_fn!(env, abs, 1);
+    declare_fn!(env, numer, 1);
+    declare_fn!(env, denom, 1);
+    declare_fn!(env, rationalize, 1);
+
+    declare_fn!(env, re, 1);
+    declare_fn!(env, im, 1);
+    declare_fn!(env, conj, 1);
+    declare_fn!(env, arg, 1);
+    declare_fn!(env, norm, 1);
+    declare_fn!(env, norm_sq, 1);
+    
     declare_fn!(env, floor, 1);
     declare_fn!(env, ceil, 1);
     declare_fn!(env, round, 1);
     declare_fn!(env, round_to, 2);
+    declare_fn!(env, fract, 1);
+    declare_fn!(env, trunc, 1);
+    declare_fn!(env, signum, 1);
+
     declare_fn!(env, sin, 1);
     declare_fn!(env, cos, 1);
     declare_fn!(env, tan, 1);
@@ -46,6 +65,10 @@ pub fn load(env: &mut Environment) {
     declare_fn!(env, atanh, 1);
     declare_fn!(env, exp, 1);
     declare_fn!(env, "log", fn_ln, 1);
+    declare_fn!(env, sqrt, 1);
+
+    declare_fn!(env, gcd, 2);
+    declare_fn!(env, lcm, 2);
     declare_fn!(env, is_prime, 1);
     declare_fn!(env, factors, 1);
 }
@@ -54,12 +77,12 @@ pub fn load(env: &mut Environment) {
 // Helper functions
 //
 
-fn try_into_floaty(v: &Value, name: &'static str) -> Result<Floaty, String> {
+fn try_into_floaty(v: &Value, name: &str) -> Result<Floaty, String> {
     match v {
-        Value::Int(n) => Ok((*n as f64).into()),
         Value::Float(f) => Ok((*f).into()),
-        Value::Rational(r) => Ok((r.to_f64().ok_or("Could not convert rational to float")?).into()),
         Value::Complex(z) => Ok((*z).into()),
+        Value::Int(n) => Ok((*n as f64).into()),
+        Value::Rational(r) => Ok((r.to_f64().ok_or("Could not convert rational to float")?).into()),
         _ => Err(format!("Argument to {} must be numeric", name))
     }
 }
@@ -67,25 +90,6 @@ fn try_into_floaty(v: &Value, name: &'static str) -> Result<Floaty, String> {
 //
 // Misc functions
 //
-
-fn fn_re(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    match &args[0] {
-        Value::Int(x) => Ok(Value::Float(*x as f64)),
-        Value::Float(x) => Ok(Value::Float(*x)),
-        Value::Rational(x) => Ok(Value::Float(x.to_f64().unwrap())),
-        Value::Complex(x) => Ok(Value::Float(x.re)),
-        x => Err(format!("Cannot get real part of {:?}", x).into())
-    }
-}
-
-fn fn_im(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    match &args[0] {
-        Value::Int(_) | Value::Float(_) | Value::Rational(_) 
-            => Ok(Value::Float(0.0)),
-        Value::Complex(x) => Ok(Value::Float(x.im)),
-        x => Err(format!("Cannot get real part of {:?}", x).into())
-    }
-}
 
 fn fn_min(args: Vec<Value>) -> Result<Value, RuntimeError> {
     match args[0].partial_cmp(&args[1]) {
@@ -108,9 +112,108 @@ fn fn_abs(args: Vec<Value>) -> Result<Value, RuntimeError> {
         Value::Int(n) => Ok(Value::Int(n.abs())),
         Value::Float(f) => Ok(Value::Float(f.abs())),
         Value::Rational(r) => Ok(Value::Rational(r.abs())),
-        _ => Err("Argument to floor must be real".into()),
+        _ => Err("Argument to abs must be real".into()),
     }
 }
+
+//
+// Rationals
+//
+
+fn fn_numer(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match args[0] {
+        Value::Rational(r) => Ok(Value::from(*r.numer())),
+        Value::Int(n) => Ok(Value::from(n)),
+        _ => Err("Argument to numer must be integer or rational".into()),
+    }
+}
+
+fn fn_denom(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match args[0] {
+        Value::Rational(r) => Ok(Value::from(*r.denom())),
+        Value::Int(_) => Ok(Value::from(1)),
+        _ => Err("Argument to denom must be integer or rational".into()),
+    }
+}
+
+fn fn_rationalize(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Float(f) => match Rational::approximate_float(*f) {
+            Some(r) => Ok(Value::from(r)),
+            None => Err("Error rationalizing float".into())
+        },
+        Value::Int(n) => Ok(Value::Rational(Rational::from(*n))),
+        Value::Rational(r) => Ok(Value::Rational(*r)),
+        x => Err(format!("Expected float, int, or rational, got {}", x).into())
+    }
+}
+
+//
+// Complex
+//
+
+fn fn_re(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Complex(x) => Ok(Value::Float(x.re)),
+        Value::Float(x) => Ok(Value::Float(*x)),
+        Value::Int(x) => Ok(Value::Float(*x as f64)),
+        Value::Rational(x) => Ok(Value::Float(x.to_f64().unwrap())),
+        x => Err(format!("Cannot get real part of {:?}", x).into())
+    }
+}
+
+fn fn_im(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Complex(x) => Ok(Value::Float(x.im)),
+        Value::Int(_) | Value::Float(_) | Value::Rational(_) 
+            => Ok(Value::Float(0.0)),
+        x => Err(format!("Cannot get real part of {:?}", x).into())
+    }
+}
+
+fn fn_conj(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Complex(x) => Ok(Value::from(x.conj())),
+        Value::Float(n) => Ok(Value::from(Complex::from(*n))),
+        Value::Int(n) => Ok(Value::from(Complex::from(*n as f64))),
+        Value::Rational(n) => Ok(Value::from(Complex::from(n.to_f64().unwrap()))),
+        x => Err(format!("Cannot get conjugate of {:?}", x).into())
+    }
+}
+
+fn fn_arg(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Complex(x) => Ok(Value::from(x.arg())),
+        Value::Float(n) if *n >= 0.0 => Ok(Value::from(0.0)),
+        Value::Float(_) => Ok(Value::from(std::f64::consts::PI)),
+        Value::Int(n) if *n >= 0 => Ok(Value::from(0.0)),
+        Value::Int(_) => Ok(Value::from(std::f64::consts::PI)),
+        Value::Rational(n) if *n >= Rational::zero() => Ok(Value::from(0.0)),
+        Value::Rational(_) => Ok(Value::from(std::f64::consts::PI)),
+        x => Err(format!("Cannot get argument of {:?}", x).into())
+    }
+}
+
+fn fn_norm(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Complex(x) => Ok(Value::from(x.norm())),
+        Value::Float(n) => Ok(Value::from(n.abs())),
+        Value::Int(n) => Ok(Value::from(n.abs() as f64)),
+        Value::Rational(n) => Ok(Value::from(n.abs().to_f64().unwrap())),
+        x => Err(format!("Cannot get norm of {:?}", x).into())
+    }
+}
+
+fn fn_norm_sq(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Complex(x) => Ok(Value::from(x.norm_sqr())),
+        Value::Float(n) => Ok(Value::from(n*n)),
+        Value::Int(n) => Ok(Value::from((*n as f64)*(*n as f64))),
+        Value::Rational(n) => { let x = n.to_f64().unwrap(); Ok(Value::from(x*x)) },
+        x => Err(format!("Cannot get norm squared of {:?}", x).into())
+    }
+}
+
 
 //
 // Rounding
@@ -181,6 +284,37 @@ fn fn_round_to(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 }
 
+fn fn_fract(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match args[0] {
+        Value::Int(_) => Ok(Value::Int(0)),
+        Value::Float(f) => Ok(Value::Float(f.fract())),
+        Value::Complex(c) => Ok(Value::Complex(Complex::new(c.re.fract(), c.im.fract()))),
+        Value::Rational(r) => Ok(Value::Rational(r.fract())),
+        _ => Err("Argument to fract must be numeric".into()),
+    }
+}
+
+fn fn_trunc(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match args[0] {
+        Value::Int(n) => Ok(Value::Int(n)),
+        Value::Float(f) => Ok(Value::Float(f.trunc())),
+        Value::Complex(c) => Ok(Value::Complex(Complex::new(c.re.trunc(), c.im.trunc()))),
+        Value::Rational(r) => Ok(Value::Rational(r.trunc())),
+        _ => Err("Argument to trunc must be numeric".into()),
+    }
+}
+
+fn fn_signum(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match args[0] {
+        Value::Int(n) => Ok(Value::Int(n.signum())),
+        Value::Float(f) => Ok(Value::Float(f.signum())),
+        Value::Complex(c) => Ok(Value::Complex(Complex::new(c.re.signum(), c.im.signum()))),
+        Value::Rational(r) => Ok(Value::Rational(r.signum())),
+        _ => Err("Argument to trunc must be numeric".into()),
+    }
+}
+
+
 //
 // Transcendental functions
 //
@@ -213,15 +347,58 @@ transcendental!{ acosh }
 transcendental!{ atanh }
 transcendental!{ exp }
 transcendental!{ ln }
+transcendental!{ sqrt } // not technically transcendental
 
 //
-// Factorization
+// Integers
 //
+
+fn gcd_inner(mut a: i64, mut b: i64) -> i64 {
+    if a == 0 {
+        return b
+    } else if b == 0 {
+        return a
+    }
+
+    let az = a.trailing_zeros();
+    a >>= az;
+    let bz = b.trailing_zeros();
+    b >>= bz;
+    let z = az.min(bz);
+
+    loop {
+        if a > b  {
+            std::mem::swap(&mut a, &mut b);
+        }
+        b -= a;
+        if b == 0 {
+            return a << z;
+        }
+        b >>= b.trailing_zeros();
+    }
+}
+
+fn fn_gcd(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    let (a, b) = match (&args[0], &args[1]) {
+        (Value::Int(a), Value::Int(b)) => (a.abs(), b.abs()),
+        _ => return Err("Arguments to gcd must be integers".into())
+    };
+    Ok(Value::from(gcd_inner(a, b)))
+}
+
+fn fn_lcm(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    let (a, b) = match (&args[0], &args[1]) {
+        (Value::Int(a), Value::Int(b)) => (a.abs(), b.abs()),
+        _ => return Err("Arguments to lcm must be integers".into())
+    };
+    let gcd = gcd_inner(a, b);
+    Ok(Value::from(a/gcd * b))
+}
 
 fn fn_is_prime(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let n = match &args[0] {
         Value::Int(n) => *n,
-        _ => return Err("Argument to is_prime must be an integer".into())
+        _ => return Err("Argument to is_prime must be integers".into())
     };
     match n {
         _ if n <= 1 => Ok(Value::Bool(false)),
@@ -229,20 +406,19 @@ fn fn_is_prime(args: Vec<Value>) -> Result<Value, RuntimeError> {
         _ if (n % 2 == 0) || (n % 3 == 0) => Ok(Value::Bool(false)),
         _ => {
             let mut i = 5;
+            let mut d = 2;
             while i*i <= n {
                 if n % i == 0 {
                     return Ok(Value::Bool(false));
                 }
-                i += 2;
-                if n % i == 0 {
-                    return Ok(Value::Bool(false));
-                }
-                i += 4;
+                i += d;
+                d = 6 - d;
             }
             Ok(Value::Bool(true))
         }
     }
 }
+
 
 fn fn_factors(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let mut n = match &args[0] {
@@ -253,7 +429,7 @@ fn fn_factors(args: Vec<Value>) -> Result<Value, RuntimeError> {
         return Ok(Value::from(vec![]));
     }
     let mut factors = vec![];
-    while n % 2 == 0 {
+    while n & 1 == 0 {
         factors.push(Value::Int(2));
         n >>= 1;
     }
@@ -262,17 +438,18 @@ fn fn_factors(args: Vec<Value>) -> Result<Value, RuntimeError> {
         n /= 3;
     }
     let mut i = 5;
+    let mut d = 2;
     while n != 1 {
+        if i*i > n {
+            factors.push(Value::Int(n));
+            break;
+        }
         while n % i == 0 {
             factors.push(Value::Int(i));
             n /= i;
         }
-        i += 2;
-        while n % i == 0 {
-            factors.push(Value::Int(i));
-            n /= i;
-        }
-        i += 4;
+        i += d;
+        d = 6 - d;
     }
 
     Ok(Value::from(factors))

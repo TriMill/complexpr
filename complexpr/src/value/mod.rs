@@ -54,18 +54,20 @@ pub fn generate_struct_type(name: Rc<str>, fields: Vec<String>) -> Type {
 pub fn generate_builtin_types() -> Vec<Type> {
     let mut types = vec![];
     for x in ValueDiscriminants::iter() {
-        types.push(Type {
-            name: Rc::from(x.as_ref()),
-            id: x as usize,
-            typedata: TypeData::None,
-        })
+        if x != ValueDiscriminants::Struct && x != ValueDiscriminants::Native {
+            types.push(Type {
+                name: Rc::from(x.as_ref()),
+                id: x as usize,
+                typedata: TypeData::None,
+            })
+        }
     }
     types
 }
 
 fn fmt_list(list: &Vec<Value>) -> String {
     let mut result: String = "[".into();
-    if list.len() > 0 {
+    if !list.is_empty() {
         for v in list {
             result += &(v.repr() + ", ");
         }
@@ -77,7 +79,7 @@ fn fmt_list(list: &Vec<Value>) -> String {
 
 fn fmt_map(map: &HashMap<Value, Value>) -> String {
     let mut result: String = "{".into();
-    if map.len() > 0 {
+    if !map.is_empty() {
         for (k, v) in map {
             result += &(k.repr() + ": " + &v.repr() + ", ");
         }

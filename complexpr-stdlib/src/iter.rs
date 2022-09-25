@@ -5,6 +5,8 @@ use complexpr::{value::{Value, func::Func}, RuntimeError, env::Environment};
 use crate::declare_fn;
 
 pub fn load(env: &mut Environment) {
+    declare_fn!(env, iter, 1);
+    declare_fn!(env, next, 1);
     declare_fn!(env, take, 2);
     declare_fn!(env, skip, 2);
     declare_fn!(env, forall, 2);
@@ -12,6 +14,31 @@ pub fn load(env: &mut Environment) {
     declare_fn!(env, nth, 2);
     declare_fn!(env, last, 1);
     declare_fn!(env, void, 1);
+}
+
+fn fn_iter(mut args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Func(f) if f.arg_count() == 0 => Ok(args.pop().unwrap()),
+        x => {
+            let it = RefCell::new(x.iter()?);
+            Ok(Value::Func(Func::BuiltinClosure {
+                arg_count: 0,
+                func: Rc::new(move |_| {
+                    match it.borrow_mut().next() {
+                        Some(x) => x,
+                        None => Ok(Value::Nil)
+                    }
+                })
+            } ))
+        }
+    }
+}
+
+fn fn_next(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match args[0].iter()?.next() {
+        Some(x) => x,
+        None => Ok(Value::Nil)
+    }
 }
 
 fn fn_take(args: Vec<Value>) -> Result<Value, RuntimeError> {

@@ -10,3 +10,4 @@ complexpr = { path = "../complexpr"}
 num-traits = "0.2.15"
 paste = "1.0.9"
 lazy_static = "1.4.0"
+try-partialord = "0.1.3"
