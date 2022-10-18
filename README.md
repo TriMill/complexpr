@@ -229,6 +229,10 @@ let add7 = add(7);
 println(add7(3)); # prints 10
 ```
 
+### Boxed infix operators
+
+Some infix operators can be converted to functions by prefixing them with a backslash `\`. For example, `\+` is a function that computes the sum of its two arguments (the same as `fn(x, y) (x + y)`). This can be done for arithmetic, comparison, and bitwise operators only.
+
 ## Iterators
 
 An iterator is simply a function with the following properties:

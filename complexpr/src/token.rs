@@ -32,6 +32,7 @@ pub enum TokenType {
 
     PipeColon, PipePoint, PipeQuestion, PipeAmper,
     PipeSlash, PipeBackslash, PipeDoubleSlash, PipeDoubleBackslash,
+    Backslash,
 
     Comma, Semicolon, Colon, 
 
@@ -63,6 +64,9 @@ impl TokenType {
             | Self::StarEqual | Self::SlashEqual | Self::DoubleSlashEqual
             | Self::CaretEqual | Self::PercentEqual => Some(OpType::Assignment),
 
+            Self::Amper => Some(OpType::BitwiseAnd),
+            Self::Pipe => Some(OpType::BitwiseOr),
+
             Self::DoubleAmper => Some(OpType::LogicalAnd),
             Self::DoublePipe => Some(OpType::LogicalOr),
 
@@ -83,6 +87,8 @@ impl TokenType {
             | OpType::Multiplicative
             | OpType::Exponential
             | OpType::Comparison
+            | OpType::BitwiseAnd
+            | OpType::BitwiseOr
             // TODO | OpType::Pipeline
         ))
     }
@@ -90,7 +96,10 @@ impl TokenType {
 
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 pub enum OpType {
-    Assignment, Comparison, Pipeline, Additive, Multiplicative, Exponential, LogicalAnd, LogicalOr
+    Assignment, Comparison, Pipeline, 
+    Additive, Multiplicative, Exponential, 
+    LogicalAnd, LogicalOr,
+    BitwiseAnd, BitwiseOr,
 }
 
 impl OpType {

@@ -480,7 +480,7 @@ value_from!(Map, RefCell<HashMap<Value,Value>>);
 
 
 macro_rules! impl_numeric_op {
-    ($optrait:ty, $fnname:ident, { $($bonus:tt)* }) => {
+    ($optrait:ty, $fnname:ident, $op:literal, { $($bonus:tt)* }) => {
         impl $optrait for &Value {
             type Output = Result<Value, String>;
             fn $fnname(self, other: Self) -> Self::Output {
@@ -504,14 +504,14 @@ macro_rules! impl_numeric_op {
                     (Rational(a), Complex(b))  => Ok(self::Complex::from(a.to_f64().ok_or(RATIO_CAST_FAIL)?).$fnname(b).into()),
                     (Complex(a),  Rational(b)) => Ok(a.$fnname(self::Complex::from(b.to_f64().ok_or(RATIO_CAST_FAIL)?)).into()),
                     (Complex(a),  Complex(b))  => Ok(a.$fnname(b).into()),
-                    (lhs, rhs) => Err(format!("Unsupported operation '{}' between {} and {}", stringify!($fnname), lhs.repr(), rhs.repr()))
+                    (lhs, rhs) => Err(format!("Unsupported operation '{}' between {} and {}", $op, lhs.repr(), rhs.repr()))
                 }
             }
         }
     }
 }
 
-impl Neg for Value {
+impl Neg for &Value {
     type Output = Result<Value, String>;
     fn neg(self) -> Self::Output {
         match self {
@@ -524,7 +524,7 @@ impl Neg for Value {
     }
 }
 
-impl_numeric_op!(Add, add, {
+impl_numeric_op!(Add, add, "+", {
     (String(a), String(b)) => Ok(((**a).to_owned() + b).into()),
     (String(a), Char(c)) => {
         let mut s = (**a).to_owned();
@@ -543,20 +543,20 @@ impl_numeric_op!(Add, add, {
         Ok(a.into())
     },
 });
-impl_numeric_op!(Sub, sub, {});
-impl_numeric_op!(Mul, mul, {
+impl_numeric_op!(Sub, sub, "-", {});
+impl_numeric_op!(Mul, mul, "*", {
     (String(a), Int(b)) | (Int(b), String(a)) 
         => Ok(Value::from(a.chars().cycle().take(a.chars().count()*(*b as usize)).collect::<std::string::String>())),
     (List(a), Int(b)) | (Int(b), List(a))
         => Ok(Value::from(a.borrow().iter().cycle().take(a.borrow().len()*(*b as usize)).cloned().collect::<Vec<Value>>())),
 });
-impl_numeric_op!(Div, div, {
+impl_numeric_op!(Div, div, "/", {
     (Int(_), Int(b)) if *b == 0 => Err("Integer division by zero".into()),
     (Rational(_), Int(b)) if *b == 0 => Err("Rational division by zero".into()),
     (Int(_), Rational(b)) if b.is_zero() => Err("Rational division by zero".into()),
     (Rational(_), Rational(b)) if b.is_zero() => Err("Rational division by zero".into()),
 });
-impl_numeric_op!(Rem, rem, {
+impl_numeric_op!(Rem, rem, "%", {
     (Int(_), Int(b)) if *b == 0 => Err("Integer modulo by zero".into()),
     (Rational(_), Int(b)) if *b == 0 => Err("Rational modulo by zero".into()),
     (Int(_), Rational(b)) if b.is_zero() => Err("Rational modulo by zero".into()),
@@ -594,7 +594,46 @@ impl Pow<&Value> for &Value {
             (Rational(a), Complex(b))  => Ok(self::Complex::from(a.to_f64().ok_or(RATIO_CAST_FAIL)?).pow(b).into()),
             (Complex(a),  Rational(b)) => Ok(a.pow(self::Complex::from(b.to_f64().ok_or(RATIO_CAST_FAIL)?)).into()),
             (Complex(a),  Complex(b))  => Ok(a.pow(b).into()),
-            (lhs, rhs) => Err(format!("Unsupported operation 'pow' between {} and {}", lhs.repr(), rhs.repr()))
+            (lhs, rhs) => Err(format!("Unsupported operation '^' between {} and {}", lhs.repr(), rhs.repr()))
+        }
+    }
+}
+
+impl BitAnd for &Value {
+    type Output = Result<Value, String>;
+
+    fn bitand(self, other: Self) -> Self::Output {
+        use Value::*;
+        match (self, other) {
+            (Int(a), Int(b)) => Ok(Int(a & b)),
+            (Bool(a), Bool(b)) => Ok(Bool(a & b)),
+            _ => Err(format!("Unsupported operation '&' between {} and {}", self.repr(), other.repr()))
+        }
+    }
+}
+
+impl BitOr for &Value {
+    type Output = Result<Value, String>;
+
+    fn bitor(self, other: Self) -> Self::Output {
+        use Value::*;
+        match (self, other) {
+            (Int(a), Int(b)) => Ok(Int(a | b)),
+            (Bool(a), Bool(b)) => Ok(Bool(a | b)),
+            _ => Err(format!("Unsupported operation '|' between {} and {}", self.repr(), other.repr()))
+        }
+    }
+}
+
+impl Not for &Value {
+    type Output = Result<Value, String>;
+
+    fn not(self) -> Self::Output {
+        use Value::*;
+        match self {
+            Int(a) => Ok(Int(!a)),
+            Bool(a) => Ok(Bool(!a)),
+            _ => Err(format!("Unsupported operation '~' for {}", self.repr())),
         }
     }
 }

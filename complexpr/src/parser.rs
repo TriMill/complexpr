@@ -4,19 +4,18 @@ use crate::{token::{Token, TokenType, OpType}, ParserError, expr::{Stmt, Expr}, 
 
 pub struct Parser {
     tokens: Vec<Token>,
-    repl: bool,
     idx: usize
 }
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>, repl: bool) -> Self {
-        Self { tokens, repl, idx: 0 }
+    pub fn new(tokens: Vec<Token>) -> Self {
+        Self { tokens, idx: 0 }
     }
     
     pub fn parse(&mut self) -> Result<Vec<Stmt>, ParserError> {
         let mut stmts = vec![];
         while !self.at_end() {
-            stmts.push(self.statement(!self.repl)?);
+            stmts.push(self.statement()?);
         }
         Ok(stmts)
     }
@@ -96,14 +95,19 @@ impl Parser {
     //              //
     //////////////////
 
-    fn statement(&mut self, req_semicolon: bool) -> Result<Stmt, ParserError> {
+    fn statement(&mut self) -> Result<Stmt, ParserError> {
         let next_ty = &self.peek().ty;
 
         match next_ty {
+            TokenType::Semicolon => {
+                // skip lonely semicolon
+                self.next();
+                self.statement()
+            }
             TokenType::Let => {
                 // let statement
                 self.next();
-                self.letstmt(req_semicolon)
+                self.letstmt()
             },
             TokenType::LBrace => {
                 // block
@@ -127,16 +131,16 @@ impl Parser {
             },
             TokenType::Break => {
                 let tok = self.next();
-                self.terminate_stmt(Stmt::Break{ pos: tok.pos }, req_semicolon)
+                self.terminate_stmt(Stmt::Break{ pos: tok.pos })
             },
             TokenType::Continue => {
                 let tok = self.next();
-                self.terminate_stmt(Stmt::Continue{ pos: tok.pos }, req_semicolon)
+                self.terminate_stmt(Stmt::Continue{ pos: tok.pos })
             },
             TokenType::Return => {
                 let tok = self.next();
                 let expr = self.assignment()?;
-                self.terminate_stmt(Stmt::Return{ pos: tok.pos, expr }, req_semicolon)
+                self.terminate_stmt(Stmt::Return{ pos: tok.pos, expr })
             },
             TokenType::Fn => {
                 self.next();
@@ -149,39 +153,34 @@ impl Parser {
             _ => {
                 // fallback to an expression terminated with a semicolon
                 let expr = self.assignment()?;
-                self.terminate_stmt(Stmt::Expr{ expr }, req_semicolon)
+                self.terminate_stmt(Stmt::Expr{ expr })
             }
         }
     }
 
-    fn terminate_stmt(&mut self, stmt: Stmt, req_semicolon: bool) -> Result<Stmt, ParserError> {
+    fn terminate_stmt(&mut self, stmt: Stmt) -> Result<Stmt, ParserError> {
         if self.at_end() {
-            if req_semicolon {
-                self.err_on_eof()?;
-            } else{
-                return Ok(stmt)
-            }
+            self.err_on_eof()?;
         }
 
         match self.expect(TokenType::Semicolon).0 {
             true => Ok(stmt),
-            false if !req_semicolon => Ok(stmt),
             false => Err(self.mk_error("Missing semicolon after statement"))
         }
 
     }
 
-    fn letstmt(&mut self, req_semicolon: bool) -> Result<Stmt, ParserError> {
+    fn letstmt(&mut self) -> Result<Stmt, ParserError> {
         let expr = self.assignment()?;
         // must be followed by an assignment expression
         if let Expr::Binary{lhs, rhs, op: Token{ty: TokenType::Equal,..}} = expr {
             if let Expr::Ident{value: tok} = *lhs {
-                self.terminate_stmt(Stmt::Let{lhs: tok, rhs: Some(*rhs)}, req_semicolon)
+                self.terminate_stmt(Stmt::Let{lhs: tok, rhs: Some(*rhs)})
             } else {
                 Err(self.mk_error("Invalid expression after 'let'".to_owned()))
             }
         } else if let Expr::Ident{value: tok} = expr {
-            self.terminate_stmt(Stmt::Let{lhs: tok, rhs: None}, req_semicolon)
+            self.terminate_stmt(Stmt::Let{lhs: tok, rhs: None})
         } else {
             Err(self.mk_error("Invalid expression after 'let'".to_owned()))
         }
@@ -192,7 +191,7 @@ impl Parser {
         let mut ec = false;
         loop {
             let condition = self.assignment()?;
-            let body = self.statement(true)?;
+            let body = self.statement()?;
             if_clauses.push((condition, body));
             match self.peek().ty {
                 TokenType::Elif => { self.next(); continue },
@@ -201,7 +200,7 @@ impl Parser {
             }
         }
         let else_clause = if ec {
-            Some(Box::new(self.statement(true)?))
+            Some(Box::new(self.statement()?))
         } else {
             None
         };
@@ -222,7 +221,7 @@ impl Parser {
             self.err_on_eof()?;
             let expr = self.assignment()?;
             self.err_on_eof()?;
-            let stmt = self.statement(true)?;
+            let stmt = self.statement()?;
             Ok(Stmt::For{ var, expr, stmt: Box::new(stmt), iter_pos: colon.pos })
         } else {
             Err(self.mk_error("Expected identifier after for"))
@@ -233,7 +232,7 @@ impl Parser {
         self.err_on_eof()?;
         let expr = self.assignment()?;
         self.err_on_eof()?;
-        let stmt = self.statement(true)?;
+        let stmt = self.statement()?;
         Ok(Stmt::While{ expr, stmt: Box::new(stmt) })
     }
 
@@ -273,7 +272,7 @@ impl Parser {
     fn block(&mut self) -> Result<Stmt, ParserError> {
         let mut stmts = vec![];
         while !self.at_end() && self.peek().ty != TokenType::RBrace {
-            stmts.push(self.statement(true)?)
+            stmts.push(self.statement()?)
         }
         self.err_on_eof()?;
         self.next();
@@ -357,7 +356,15 @@ impl Parser {
     }
 
     fn comparison(&mut self) -> Result<Expr, ParserError> {
-        self.expr(OpType::Comparison, Self::additive)
+        self.expr(OpType::Comparison, Self::bitwise_or)
+    }
+
+    fn bitwise_or(&mut self) -> Result<Expr, ParserError> {
+        self.expr(OpType::BitwiseOr, Self::bitwise_and)
+    }
+
+    fn bitwise_and(&mut self) -> Result<Expr, ParserError> {
+        self.expr(OpType::BitwiseAnd, Self::additive)
     }
 
     fn additive(&mut self) -> Result<Expr, ParserError> {
@@ -422,9 +429,9 @@ impl Parser {
     // unary: !x, -x
     fn unary(&mut self) -> Result<Expr, ParserError> {
         self.err_on_eof()?;
-        if matches!(self.peek().ty, TokenType::Bang | TokenType::Minus) {
+        if matches!(self.peek().ty, TokenType::Minus | TokenType::Bang | TokenType::Tilde) {
             let op = self.next();
-            Ok(Expr::Unary { arg: Box::new(self.fieldaccess()?), op })
+            Ok(Expr::Unary { arg: Box::new(self.unary()?), op })
         } else {
             self.fieldaccess()
         }
@@ -511,29 +518,26 @@ impl Parser {
             // An identifier
             Ok(Expr::Ident { value: next })
         } else if next.ty == TokenType::LParen {
-            // Special case for "boxed infix operators"
-            if !self.at_end() && self.peek().ty.is_infix_op() {
-                let op = self.next();
-                self.err_on_eof()?;
-                if self.peek().ty != TokenType::RParen {
-                    return Err(self.mk_error("Expected right parenthesis after enclosed operator"))
-                }
-                self.next();
-                let func = Func::BuiltinClosure {
-                    arg_count: 2,
-                    func: Rc::new(move |args| {
-                        eval_standard_binary(args[0].clone(), args[1].clone(), &op.ty, &op.pos)
-                    })
-                };
-                return Ok(Expr::BoxedInfix { func })
-            }
-            // general case: parentheses as grouping symbols
+            // Grouping with parentheses
             let expr = self.assignment()?;
             if self.at_end() || TokenType::RParen != self.next().ty {
                 Err(self.mk_error("Left parenthesis never closed"))
             } else {
                 Ok(expr)
             }
+        } else if next.ty == TokenType::Backslash {
+            self.err_on_eof()?;
+            let op = self.next();
+            if !op.ty.is_infix_op() {
+                return Err(self.mk_error("Expected infix operator after backslash"))
+            }
+            let func = Func::BuiltinClosure {
+                arg_count: 2,
+                func: Rc::new(move |args| {
+                    eval_standard_binary(args[0].clone(), args[1].clone(), &op.ty, &op.pos)
+                })
+            };
+            Ok(Expr::BoxedInfix { func })
         } else if next.ty == TokenType::LBrack {
             // list literal
             let items = self.commalist(TokenType::RBrack, Self::assignment)?;

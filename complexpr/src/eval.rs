@@ -144,7 +144,9 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
             Some(OpType::Additive) 
             | Some(OpType::Multiplicative) 
             | Some(OpType::Exponential)
-            | Some(OpType::Comparison) => {
+            | Some(OpType::Comparison) 
+            | Some(OpType::BitwiseAnd)
+            | Some(OpType::BitwiseOr) => {
                 let l = eval_expr(lhs, env.clone())?;
                 let r = eval_expr(rhs, env)?;
                 eval_standard_binary(l, r, &op.ty, &op.pos)
@@ -361,6 +363,8 @@ pub fn eval_standard_binary(l: Value, r: Value, opty: &TokenType, pos: &Position
         TokenType::Star => &l * &r,
         TokenType::Slash => &l / &r,
         TokenType::Percent => &l % &r,
+        TokenType::Amper => &l & &r,
+        TokenType::Pipe => &l | &r,
         TokenType::Caret => l.pow(&r),
         TokenType::DoubleSlash => l.fracdiv(&r),
         TokenType::DoubleEqual => Ok(Value::Bool(l == r)),
@@ -511,8 +515,9 @@ pub fn eval_ternary(arg1: &Expr, arg2: &Expr, arg3: &Expr, op: &Token, env: EnvR
 pub fn eval_unary(arg: &Expr, op: &Token, env: EnvRef) -> Result<Value, RuntimeError> {
     let a = eval_expr(arg, env)?;
     match op.ty {
-        TokenType::Minus => -a,
+        TokenType::Minus => -&a,
         TokenType::Bang => Ok(Value::Bool(!a.truthy())),
+        TokenType::Tilde => !&a, 
         _ => todo!(),
     }.map_err(|e| RuntimeError::new(e, op.pos.clone()))
 }

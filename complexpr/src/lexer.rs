@@ -2,6 +2,19 @@ use std::rc::Rc;
 
 use crate::{ParserError, Position, token::{Token, TokenType}};
 
+fn is_in_base(c: char, base: u32) -> bool {
+    match (c, base) {
+        ('0' | '1', 2) => true,
+        ('0'..='5', 6) => true,
+        ('0'..='7', 8) => true,
+        ('0'..='9', 10) => true,
+        ('0'..='9' | 'a' | 'b' | 'A' | 'B', 12) => true,
+        ('0'..='9' | 'a'..='f' | 'A'..='F', 16) => true,
+        _ => false
+    }
+}
+
+
 pub struct Lexer {
     // name of file being lexed
     filename: Option<Rc<str>>,
@@ -220,6 +233,7 @@ impl Lexer {
                     _ => self.add_token(TokenType::Pipe, "|"),
                 },
                 '~' => self.add_token(TokenType::Tilde, "~"),
+                '\\' => self.add_token(TokenType::Backslash, "\\"),
                 ',' => self.add_token(TokenType::Comma, ","),
                 ';' => self.add_token(TokenType::Semicolon, ";"),
                 ':' => self.add_token(TokenType::Colon, ":"),
@@ -256,7 +270,15 @@ impl Lexer {
                 '"' => self.string()?,
                 '\'' => self.char()?,
                 ' ' | '\t' | '\r' | '\n' => (),
-                '0'..='9' => self.number()?,
+                '0' => match self.expect(&['b', 's', 'o', 'd', 'x']) {
+                    Some('b') => self.number(2)?,
+                    Some('s') => self.number(6)?,
+                    Some('o') => self.number(8)?,
+                    Some('d') => self.number(12)?,
+                    Some('x') => self.number(16)?,
+                    _ => self.number(10)?,
+                },
+                '0'..='9' => self.number(10)?,
                 'a'..='z' | 'A'..='Z' | '_' => self.ident()?,
                 c => return Err(self.mk_error(format!("Unexpected character: {}", c)))
             }
@@ -306,15 +328,18 @@ impl Lexer {
         Ok(())
     }
 
-    fn number(&mut self) -> Result<(), ParserError> {
+    fn number(&mut self, base: u32) -> Result<(), ParserError> {
         let mut has_dot = false;
-        while !self.at_end() && (self.peek().is_numeric() || self.peek() == '.') {
+        while !self.at_end() && (is_in_base(self.peek(), base) || self.peek() == '.') {
             if self.peek() == '.' {
                 if has_dot {
                     break;
                 } else {
                     if self.peek_ahead(1) == Some('.') {
                         break;
+                    }
+                    if base != 10 { 
+                        return Err(self.mk_error("Numeric literals using bases other than 10 must be integers."))
                     }
                     has_dot = true;
                 }
@@ -334,10 +359,16 @@ impl Lexer {
                 Ok(num) => self.add_token(TokenType::Float(num), literal),
                 Err(e) => return Err(self.mk_error(format!("Error parsing float: {}", e)))
             }
+        } else if base != 10 {
+            match i64::from_str_radix(&literal[2..literal.len()], base) {
+                Ok(num) => self.add_token(TokenType::Int(num), literal),
+                Err(e) => return Err(self.mk_error(format!("Error parsing integer: {}", e)))
+            }
+
         } else {
             match literal.parse::<i64>() {
                 Ok(num) => self.add_token(TokenType::Int(num), literal),
-                Err(e) => return Err(self.mk_error(format!("Error parsing float: {}", e)))
+                Err(e) => return Err(self.mk_error(format!("Error parsing integer: {}", e)))
             }
         }
         Ok(())

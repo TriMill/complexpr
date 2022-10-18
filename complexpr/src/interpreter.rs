@@ -6,7 +6,8 @@ pub fn interpret(src: &str, fname: Option<String>, env: Option<EnvRef>, repl: bo
     let ctx_name = if repl { "<interactive input>" } else { fname.as_ref().map(|s| s.as_ref()).unwrap_or("<unknown>") };
     let mut lexer = Lexer::new(src, fname.clone());
     lexer.lex()?;
-    let mut parser = Parser::new(lexer.into_tokens(), repl);
+    let tokens = lexer.into_tokens();
+    let mut parser = Parser::new(tokens);
     let ast = parser.parse()?;
     let environ;
     if let Some(env) = env {

@@ -1,11 +1,29 @@
-fn factorial(n) {
+fn fact_recursive(n) {
     if n <= 1 {
         return 1;
-    } else {
-        return n * factorial(n-1);
     }
+    return n * fact_recursive(n-1);
 }
 
-for n: 0..10 {
-    println(factorial(n));
+fn fact_imperative(n) {
+    if n <= 1 {
+        return 1;
+    }
+    let res = 1;
+    for i: 1..=n {
+        res *= i;
+    }
+    return res;
 }
+
+fn fact_pipeline(n) {
+    if n <= 1 {
+        return 1;
+    }
+    return 1..=n |// \*;
+}
+
+# 10*9*8*7*6*5*4*3*2*1 = 10
+println(fact_recursive(10));
+println(fact_imperative(10));
+println(fact_pipeline(10));
