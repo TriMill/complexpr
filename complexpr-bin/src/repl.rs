@@ -40,8 +40,9 @@ pub fn repl() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let readline = rl.readline(">> ");
         match readline {
-            Ok(line) => {
+            Ok(mut line) => {
                 rl.add_history_entry(&line);
+                line.push(';');
                 let result = interpret(&line, None, Some(env.clone()), true);
                 match result {
                     Ok(value) => {
