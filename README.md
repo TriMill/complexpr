@@ -10,6 +10,10 @@
 
 To install complexpr, simply clone this repository, `cd complexpr-bin`, and `cargo install --path .`. You can then use the `complexpr` command to start a REPL, or pass a filename as an argument to read from a file.
 
+## License
+
+The core `complexpr` parser and interpreter library, the standard library `complexpr-stdlib`, and the command-line interpreter and REPL `complexpr-bin` are licensed under the [GNU LGPL 3.0](https://www.gnu.org/licenses/lgpl-3.0.html).
+
 ## Primitive types
 
 `complexpr` features a wide variety of primitive types, suitable for all your programming needs.
