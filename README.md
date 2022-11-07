@@ -301,22 +301,18 @@ The most basic pipeline operator is `|>`. `|>` will call the function on the rig
 0..10 |? fn(x) (x % 3 != 0) |> list |> println;
 ```
 
-`|//` and `|\\` fold the iterator on the left over the function on the right. This is commonly used to get the sum, product, minimum, or maximum of an iterator. `|//` starts folding from the beginning of the iterator, `|\\` starts from the end. In many use cases (specifically, when the function used is associative), either can be used. `|//` should be preferred in these cases, as it is more efficient (`|\\` has to collect the entire iterator into a list first).
+`|//` folds the iterator on the left over the function on the right. This is commonly used to get the sum, product, minimum, or maximum of an iterator. `|//` starts folding from the beginning of the iterator and goes to the end.
 
 ```
 # == ((((0+1)+2)+3)+4)
 0..5 |// fn(x,y) (x + y) |> println;
-# == (0+(1+(2+(3+4))))
-0..5 |\\ fn(x,y) (x + y) |> println;
 ```
 
-In some cases (particulary when the function is not commutative) it may be desirable to use an initial value instead of taking the first two values from the list. This can be accomplished with the operators `|/` and `|\`. These operators are ternary, so the right-hand side must include the initial value and the function, separated by a comma. For `|/` this initial value will be used as the first argument during the first iteration, for `|\` it will be used as the second argument during the first iteration.
+In some cases (particulary when the function is not commutative) it may be desirable to use an initial value instead of taking the first two values from the list. This can be accomplished with the operator `|/`. This operators are ternary, so the right-hand side must include the initial value and the function, separated by a comma.
 
 ```
 # == (((((0+2)+3)+4)+5)+6)
 2..7 |/ 0, fn(x,y) (x + y) |> println;
-# == (2+(3+(4+(5+(6+0)))))
-2..7 |\ 0, fn(x,y) (x + y) |> println;
 ```
 
 ## Structs (WIP)

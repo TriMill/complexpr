@@ -13,7 +13,7 @@ pub enum Stmt {
     Break { pos: Position },
     Continue { pos: Position },
     Return { pos: Position, expr: Expr },
-    Fn { name: Token, args: Vec<Token>, body: Box<Stmt> },
+    Fn { name: Token, args: Vec<Rc<str>>, body: Box<Stmt> },
     StructDef { name: Token, ty: Type },
 }
 
@@ -47,7 +47,7 @@ pub enum Expr {
     Literal { value: Token },
     List { items: Vec<Expr> },
     Map { items: Vec<(Expr,Expr)> },
-    Fn { args: Vec<Token>, body: Box<Stmt> },
+    Fn { args: Vec<Rc<str>>, body: Box<Stmt> },
     FuncCall { func: Box<Expr>, args: Vec<Expr>, pos: Position },
     Index { lhs: Box<Expr>, index: Box<Expr>, pos: Position },
     StructInit { ty: Box<Expr>, args: Vec<Expr>, pos: Position },

@@ -34,8 +34,10 @@ fn fn_input(_: Vec<Value>) -> Result<Value, RuntimeError> {
     stdin.read_line(&mut buffer).map_err(|e| e.to_string())?;
     if buffer.ends_with('\n') {
         buffer.pop();
+        Ok(Value::from(buffer))
+    } else {
+        Ok(Value::Nil)
     }
-    Ok(Value::from(buffer))
 }
 
 struct FileBox {

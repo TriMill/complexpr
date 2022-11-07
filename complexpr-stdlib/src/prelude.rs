@@ -17,6 +17,11 @@ pub fn load(env: &mut Environment) {
     declare_fn!(env, repr, 1);
     declare_fn!(env, ord, 1); 
     declare_fn!(env, chr, 1); 
+    declare_fn!(env, to_radix, 2); 
+    declare_fn!(env, bin, 1); 
+    declare_fn!(env, hex, 1); 
+    declare_fn!(env, sex, 1); 
+    declare_fn!(env, from_radix, 2); 
     declare_fn!(env, has, 2); 
     declare_fn!(env, len, 1); 
     declare_fn!(env, args, 0); 
@@ -93,6 +98,71 @@ fn fn_chr(args: Vec<Value>) -> Result<Value, RuntimeError> {
         Err("Argument to chr must be an integer".into())
     }
 }
+
+fn to_radix(r: i64, mut n: i64) -> String {
+    let mut result = String::new();
+    let mut idx = 0;
+    if n == 0 {
+        result.push('0');
+        return result
+    } else if n < 0 {
+        n = -n;
+        idx = 1;
+        result.push('-');
+    }
+    while n != 0 {
+        let c = std::char::from_digit((n % r) as u32, r as u32).unwrap();
+        result.insert(idx, c);
+        n /= r;
+    }
+    result
+}
+
+fn fn_to_radix(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1]) {
+        (Value::Int(r), Value::Int(n)) 
+            if *r >= 2 && *r <= 36 => Ok(Value::from(to_radix(*r, *n))),
+        (Value::Int(_), Value::Int(_)) => Err(format!("Radix must be an integer in the range [2, 36]").into()),
+        (Value::Int(_), v) => Err(format!("Second argument to to_radix must be an integer, got {:?}", v).into()),
+        (v, _) => Err(format!("First argument to to_radix must be an integer, got {:?}", v).into()),
+    }
+}
+
+fn fn_bin(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Int(n) => Ok(Value::from(to_radix(2, *n))),
+        v => Err(format!("Argument to bin must be an integer, got {:?}", v).into()),
+    }
+}
+
+fn fn_hex(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Int(n) => Ok(Value::from(to_radix(16, *n))),
+        v => Err(format!("Argument to bin must be an integer, got {:?}", v).into()),
+    }
+}
+
+fn fn_sex(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Int(n) => Ok(Value::from(to_radix(6, *n))),
+        v => Err(format!("Argument to bin must be an integer, got {:?}", v).into()),
+    }
+}
+
+fn fn_from_radix(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1]) {
+        (Value::Int(r), Value::String(s)) 
+        if *r >= 2 && *r <= 36 
+        => match i64::from_str_radix(s, *r as u32) {
+            Ok(n) => Ok(Value::from(n)),
+            Err(_) => Err(format!("Failed to convert string to integer in specified radix").into()),
+        },
+        (Value::Int(_), Value::String(_)) => Err(format!("Radix must be an integer in the range [2, 36]").into()),
+        (Value::Int(_), v) => Err(format!("Second argument to from_radix must be a string, got {:?}", v).into()),
+        (v, _) => Err(format!("First argument to from_radix must be an integer, got {:?}", v).into()),
+    }
+}
+
 fn fn_len(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Int(args[0].len().map_err(RuntimeError::new_no_pos)? as i64))
 }

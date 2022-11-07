@@ -115,7 +115,7 @@ pub fn eval_stmt(stmt: &Stmt, env: EnvRef) -> Result<(), Unwind> {
             let name = name.ty.clone().as_ident().unwrap();
             let func = Func::Func { 
                 name: Some(name.clone()),
-                args: args.iter().map(|a| a.ty.clone().as_ident().unwrap()).collect(),
+                args: args.to_vec(),
                 env: env.clone(),
                 func: Box::new(body.as_ref().clone())
             };
@@ -219,7 +219,7 @@ pub fn eval_expr(expr: &Expr, env: EnvRef) -> Result<Value, RuntimeError> {
         Expr::Fn { args, body } => {
             let func = Func::Func { 
                 name: None,
-                args: args.iter().map(|a| a.ty.clone().as_ident().unwrap()).collect(),
+                args: args.to_vec(),
                 env,
                 func: Box::new(body.as_ref().clone())
             };
@@ -356,7 +356,7 @@ pub fn eval_assignment(lhs: &Expr, rhs: &Expr, op: &Token, env: EnvRef) -> Resul
 }
 
 pub fn eval_standard_binary(l: Value, r: Value, opty: &TokenType, pos: &Position) -> Result<Value, RuntimeError> {
-    let mk_err = || format!("Cannot compare {:?} with {:?}", l, r);
+    let mk_err = || format!("Cannot compare {} with {}", l, r);
     match opty {
         TokenType::Plus => &l + &r,
         TokenType::Minus => &l - &r,
@@ -460,21 +460,6 @@ fn eval_pipeline(l: Value, r: &Func, op: &Token) -> Result<Value, RuntimeError> 
             }
             Ok(result)
         },
-        TokenType::PipeDoubleBackslash => {
-            let mut result = Value::Nil;
-            let mut first_iter = true;
-            let lst = l.iter().map_err(|e| RuntimeError::new(e, op.pos.clone()))?.collect::<Vec<Result<Value, RuntimeError>>>();
-            for v in lst.into_iter().rev() {
-                let v = v.map_err(exit_pipe(&op.pos))?;
-                if first_iter {
-                    result = v;
-                    first_iter = false;
-                } else {
-                    result = r.call(vec![v, result]).map_err(exit_pipe(&op.pos))?;
-                }
-            }
-            Ok(result)
-        },
         _ => todo!()
     }
 
@@ -492,19 +477,6 @@ pub fn eval_ternary(arg1: &Expr, arg2: &Expr, arg3: &Expr, op: &Token, env: EnvR
             for v in iter.iter().map_err(|e| RuntimeError::new(e, op.pos.clone()))? {
                 let v = v.map_err(exit_pipe(&op.pos))?;
                 result = func.call(vec![result, v]).map_err(exit_pipe(&op.pos))?;
-            }
-            Ok(result)
-        },
-        TokenType::PipeBackslash => {
-            let iter = eval_expr(arg1, env.clone())?;
-            let mut result = eval_expr(arg2, env.clone())?;
-            let func = eval_expr(arg3, env)?;
-            let func = func.as_func()
-                .map_err(|e| RuntimeError::new(e, op.pos.clone()))?;
-            let lst = iter.iter().map_err(|e| RuntimeError::new(e, op.pos.clone()))?.collect::<Vec<Result<Value, RuntimeError>>>();
-            for v in lst.into_iter().rev() {
-                let v = v.map_err(exit_pipe(&op.pos))?;
-                result = func.call(vec![v, result]).map_err(exit_pipe(&op.pos))?;
             }
             Ok(result)
         },

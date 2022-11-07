@@ -473,7 +473,7 @@ value_from!(Float, f32 f64);
 value_from!(Complex, Complex);
 value_from!(Rational, Rational);
 value_from!(Bool, bool);
-value_from!(String, String Rc<str>);
+value_from!(String, String Rc<str> &str);
 value_from!(List, RefCell<Vec<Value>>);
 value_from!(Char, char);
 value_from!(Map, RefCell<HashMap<Value,Value>>);

@@ -79,9 +79,9 @@ impl Parser {
             if self.peek().ty == TokenType::Comma {
                 self.next();
             } else if self.peek().ty == terminator {
-                break;
+                break
             } else {
-                return Err(self.mk_error(format!("Expected Comma or {:?} after list", terminator)))
+                return Err(self.mk_error(format!("Expected comma or {} after list", terminator)))
             }
         }
         self.err_on_eof()?;
@@ -102,7 +102,11 @@ impl Parser {
             TokenType::Semicolon => {
                 // skip lonely semicolon
                 self.next();
-                self.statement()
+                if self.at_end() {
+                    Ok(Stmt::Block { stmts: vec![] })
+                } else {
+                    self.statement()
+                }
             }
             TokenType::Let => {
                 // let statement
@@ -249,6 +253,7 @@ impl Parser {
             return Err(self.mk_error("Expected left parenthesis to start arguments list"))
         }
         let args = self.commalist(TokenType::RParen, Self::ident)?;
+        let args = args.iter().map(|a| a.ty.clone().as_ident().unwrap()).collect();
         self.err_on_eof()?;
         if self.peek().ty == TokenType::LParen {
             self.next();
@@ -333,7 +338,7 @@ impl Parser {
         while !self.at_end() && self.peek().ty.get_op_type() == Some(OpType::Pipeline) {
             let op = self.next();
             let right = self.logical_or()?;
-            if op.ty == TokenType::PipeSlash || op.ty == TokenType::PipeBackslash {
+            if op.ty == TokenType::PipeSlash {
                 self.err_on_eof()?;
                 if !self.expect(TokenType::Comma).0 {
                     return Err(self.mk_error("Expected comma after first argument"))
@@ -508,7 +513,7 @@ impl Parser {
         self.err_on_eof()?;
         let next = self.next();
         if matches!(next.ty, 
-            TokenType::True | TokenType::False | TokenType::Nil 
+            TokenType::True | TokenType::False | TokenType::Nil
             | TokenType::Int(_) | TokenType::Float(_) | TokenType::ImFloat(_)
             | TokenType::String(_) | TokenType::Char(_)
         ) {
@@ -528,16 +533,17 @@ impl Parser {
         } else if next.ty == TokenType::Backslash {
             self.err_on_eof()?;
             let op = self.next();
-            if !op.ty.is_infix_op() {
-                return Err(self.mk_error("Expected infix operator after backslash"))
+            if op.ty.is_infix_op() {
+                let func = Func::BuiltinClosure {
+                    arg_count: 2,
+                    func: Rc::new(move |args| {
+                        eval_standard_binary(args[0].clone(), args[1].clone(), &op.ty, &op.pos)
+                    })
+                };
+                Ok(Expr::BoxedInfix { func })
+            } else {
+                Err(self.mk_error("Expected infix operator after backslash"))
             }
-            let func = Func::BuiltinClosure {
-                arg_count: 2,
-                func: Rc::new(move |args| {
-                    eval_standard_binary(args[0].clone(), args[1].clone(), &op.ty, &op.pos)
-                })
-            };
-            Ok(Expr::BoxedInfix { func })
         } else if next.ty == TokenType::LBrack {
             // list literal
             let items = self.commalist(TokenType::RBrack, Self::assignment)?;
@@ -553,6 +559,7 @@ impl Parser {
                 return Err(self.mk_error("Expected left parenthesis to start arguments list"))
             }
             let args = self.commalist(TokenType::RParen, Self::ident)?;
+            let args = args.iter().map(|a| a.ty.clone().as_ident().unwrap()).collect();
             self.err_on_eof()?;
             if self.peek().ty == TokenType::LParen {
                 self.next();
@@ -572,7 +579,7 @@ impl Parser {
                 Err(self.mk_error("Expected '(' or '{' after function arguments list to begin body"))
             }
         } else {
-            Err(self.mk_error(format!("Unexpected token: {:?}", next.ty)))
+            Err(self.mk_error(format!("Unexpected token: {}", next.ty)))
         }
     }
 }

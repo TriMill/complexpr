@@ -226,10 +226,6 @@ impl Lexer {
                         Some('/') => self.add_token(TokenType::PipeDoubleSlash, "|//"),
                         _ => self.add_token(TokenType::PipeSlash, "|/")
                     },
-                    Some('\\') => match self.expect(&['\\']) {
-                        Some('\\') => self.add_token(TokenType::PipeDoubleBackslash, "|\\\\"),
-                        _ => self.add_token(TokenType::PipeBackslash, "|\\")
-                    },
                     _ => self.add_token(TokenType::Pipe, "|"),
                 },
                 '~' => self.add_token(TokenType::Tilde, "~"),

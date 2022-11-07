@@ -14,6 +14,7 @@ pub fn load(env: &mut Environment) {
     declare_fn!(env, nth, 2);
     declare_fn!(env, last, 1);
     declare_fn!(env, void, 1);
+    declare_fn!(env, rev, 1);
 }
 
 fn fn_iter(mut args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -124,4 +125,13 @@ fn fn_last(args: Vec<Value>) -> Result<Value, RuntimeError> {
 fn fn_void(args: Vec<Value>) -> Result<Value, RuntimeError> {
     for _ in args[0].iter()? {}
     Ok(Value::Nil)
+}
+
+fn fn_rev(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    let mut lst = vec![];
+    for item in args[0].iter()? {
+        lst.push(item?);
+    }
+    lst.reverse();
+    Ok(Value::from(lst))
 }
